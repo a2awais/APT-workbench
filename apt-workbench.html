@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>APT Analyst Workbench — Nation-State Threat Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<style>
+:root {
+  --bg:    #090e1a; --bg2: #0d1421; --bg3: #121c2e; --bg4: #182438;
+  --bdr:   rgba(99,179,237,0.10); --bdr2: rgba(99,179,237,0.28);
+  --txt:   #e2eaf6; --muted: #7a90ae; --faint: #2d3f56;
+  --blue:  #63b3ed; --blue2: rgba(99,179,237,0.13);
+  --green: #68d391; --red: #fc8181; --orange: #f6ad55; --purple: #b794f4;
+  --mono: 'IBM Plex Mono', monospace; --sans: 'Inter', system-ui, sans-serif;
+  --ease: cubic-bezier(0.16,1,0.3,1);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased}
+body{font-family:var(--sans);font-size:13px;color:var(--txt);background:var(--bg);overflow:hidden;height:100vh;display:flex;flex-direction:column}
+
+/* ── TOP BAR ── */
+.topbar{height:52px;background:var(--bg2);border-bottom:1px solid var(--bdr);display:flex;align-items:center;padding:0 20px;gap:20px;flex-shrink:0;z-index:50}
+.tb-logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.tb-brand{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--blue);letter-spacing:.18em}
+.tb-sub{font-family:var(--mono);font-size:8px;color:var(--faint);letter-spacing:.1em}
+.tb-divider{width:1px;height:28px;background:var(--bdr2)}
+/* TABS */
+.tabs{display:flex;gap:2px;background:var(--bg3);border-radius:6px;padding:3px}
+.tab{font-family:var(--mono);font-size:10px;padding:5px 14px;border-radius:4px;cursor:pointer;color:var(--muted);letter-spacing:.06em;transition:all .15s;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.tab:hover{color:var(--txt)}
+.tab.active{background:var(--bg4);color:var(--blue);box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.tab-icon{font-size:12px}
+/* search */
+.tb-search{position:relative;flex:1;max-width:320px}
+.tb-search input{width:100%;padding:6px 10px 6px 30px;background:var(--bg3);border:1px solid var(--bdr);border-radius:5px;font-size:12px;color:var(--txt);font-family:var(--mono);outline:none;transition:border-color .15s}
+.tb-search input::placeholder{color:var(--faint)}
+.tb-search input:focus{border-color:var(--blue)}
+.tb-search .si{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--faint);pointer-events:none;font-size:11px}
+.tb-stats{display:flex;gap:14px;margin-left:auto}
+.tb-stat{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;color:var(--muted)}
+.tb-stat span{color:var(--blue);font-weight:700}
+
+/* ── MAIN AREA ── */
+.workspace{flex:1;position:relative;overflow:hidden;display:flex}
+
+/* ── SIDEBAR FILTER PANEL ── */
+.filter-panel{width:220px;background:var(--bg2);border-right:1px solid var(--bdr);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;padding:14px;gap:14px}
+.fp-sec{display:flex;flex-direction:column;gap:7px}
+.fp-title{font-family:var(--mono);font-size:8px;color:var(--faint);letter-spacing:.16em;text-transform:uppercase;display:flex;align-items:center;gap:5px}
+.fp-title::before{content:'';display:inline-block;width:2px;height:9px;background:var(--blue);border-radius:1px}
+.chip{font-family:var(--mono);font-size:8px;padding:3px 8px;border-radius:10px;border:1px solid var(--bdr);color:var(--muted);cursor:pointer;transition:all .13s;white-space:nowrap;letter-spacing:.04em;display:inline-block}
+.chip:hover,.chip.on{border-color:var(--blue);color:var(--blue);background:var(--blue2)}
+.chip-row{display:flex;flex-wrap:wrap;gap:4px}
+.mot-esp.on{border-color:#63b3ed;color:#63b3ed;background:rgba(99,179,237,.1)}
+.mot-fin.on{border-color:#f6ad55;color:#f6ad55;background:rgba(246,173,85,.1)}
+.mot-des.on{border-color:#fc8181;color:#fc8181;background:rgba(252,129,129,.1)}
+.mot-mix.on{border-color:#b794f4;color:#b794f4;background:rgba(183,148,244,.1)}
+.country-list{display:flex;flex-direction:column;gap:2px}
+.c-row{display:flex;align-items:center;gap:7px;padding:4px 7px;border-radius:3px;cursor:pointer;transition:background .12s;font-size:12px;color:var(--txt)}
+.c-row:hover,.c-row.on{background:var(--blue2)}
+.c-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.c-cnt{margin-left:auto;font-family:var(--mono);font-size:9px;color:var(--muted)}
+.legend-note{font-size:10px;color:var(--faint);line-height:1.7}
+
+/* ── VIEWS ── */
+.view{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
+.view.active{display:flex}
+
+/* cluster graph */
+#cluster-view{background:var(--bg)}
+#cluster-svg{width:100%;height:100%}
+.node circle{cursor:pointer;stroke-width:1.5;transition:opacity .2s}
+.node text{pointer-events:none;font-family:'IBM Plex Mono',monospace;font-size:9px;fill:#c0d0e8;text-anchor:middle}
+.link{stroke-opacity:0.35;transition:stroke-opacity .2s}
+
+/* cluster legend */
+.cluster-legend{position:absolute;bottom:14px;left:14px;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.cl-item{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9px;color:var(--muted)}
+.cl-dot{width:8px;height:8px;border-radius:50%}
+.cl-edge{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9px;color:var(--muted)}
+
+/* cluster tooltip */
+#ctip{position:absolute;display:none;padding:9px 13px;background:rgba(9,14,26,.97);border:1px solid var(--bdr2);border-radius:5px;pointer-events:none;white-space:nowrap;z-index:80}
+#ctip.vis{display:block}
+#ctip .ct-name{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--blue)}
+#ctip .ct-info{font-size:11px;color:var(--muted);margin-top:3px}
+#ctip .ct-shared{font-size:10px;color:var(--faint);margin-top:2px;font-family:var(--mono)}
+
+/* ── DIAMOND VIEW ── */
+#diamond-view{overflow-y:auto;padding:24px}
+.diamond-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:20px}
+.diamond-wrap{display:flex;flex-direction:column;align-items:center;cursor:pointer}
+.diamond-card{width:200px;height:200px;position:relative;transition:transform .2s var(--ease)}
+.diamond-wrap:hover .diamond-card{transform:scale(1.04)}
+.diamond-card svg{width:200px;height:200px}
+.d-label{margin-top:10px;text-align:center}
+.d-name{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--txt)}
+.d-apt{font-family:var(--mono);font-size:9px;color:var(--blue);margin-top:2px;letter-spacing:.06em}
+.d-mot{font-size:9px;color:var(--muted);margin-top:2px}
+
+/* ── TTP MATRIX VIEW ── */
+#matrix-view{overflow:auto;padding:24px}
+.matrix-header{margin-bottom:16px}
+.mh-title{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--txt);margin-bottom:4px}
+.mh-sub{font-size:12px;color:var(--muted)}
+.matrix-container{overflow:auto}
+.matrix-table{border-collapse:collapse;font-family:var(--mono);font-size:10px}
+.matrix-table th{padding:6px 4px;text-align:center;white-space:nowrap;position:sticky;top:0;background:var(--bg2);z-index:2;border-bottom:1px solid var(--bdr)}
+.matrix-table th.row-hdr{text-align:left;left:0;z-index:3;padding:6px 12px 6px 0;min-width:220px}
+.matrix-table td{padding:3px 4px;text-align:center;border:1px solid rgba(99,179,237,0.04)}
+.matrix-table td.row-lbl{text-align:left;padding:3px 12px 3px 0;color:var(--muted);white-space:nowrap;position:sticky;left:0;background:var(--bg);z-index:1}
+.m-cell{width:18px;height:18px;border-radius:2px;margin:auto;transition:transform .12s}
+.m-cell:hover{transform:scale(1.5)}
+.tac-label{writing-mode:vertical-rl;transform:rotate(180deg);font-size:9px;padding:4px 2px;color:var(--muted);letter-spacing:.05em}
+
+/* ── SECTOR PIVOT VIEW ── */
+#sector-view{overflow-y:auto;padding:24px}
+.sector-intro{margin-bottom:20px}
+.si-title{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--txt);margin-bottom:4px}
+.si-sub{font-size:12px;color:var(--muted);line-height:1.6;max-width:600px}
+.sector-picker{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:24px}
+.spick{font-family:var(--mono);font-size:10px;padding:5px 12px;border-radius:4px;border:1px solid var(--bdr);color:var(--muted);cursor:pointer;transition:all .13s;letter-spacing:.04em}
+.spick:hover,.spick.on{border-color:var(--blue);color:var(--blue);background:var(--blue2)}
+.sector-results{display:flex;flex-direction:column;gap:10px}
+.sector-empty{font-family:var(--mono);font-size:12px;color:var(--faint);padding:24px;text-align:center}
+
+/* threat row in sector view */
+.trow{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--bg2);border:1px solid var(--bdr);border-radius:6px;cursor:pointer;transition:border-color .15s}
+.trow:hover{border-color:var(--bdr2)}
+.tr-rank{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--faint);width:28px;flex-shrink:0;text-align:center}
+.tr-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.tr-body{flex:1}
+.tr-name{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--txt)}
+.tr-agency{font-size:11px;color:var(--muted);margin-top:2px}
+.tr-tags{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap}
+.tr-tag{font-family:var(--mono);font-size:8px;padding:2px 6px;border-radius:2px;background:var(--bg3);color:var(--muted);border:1px solid var(--bdr)}
+.tr-tag.active{background:rgba(104,211,145,.08);color:var(--green);border-color:rgba(104,211,145,.3)}
+.tr-score{font-family:var(--mono);font-size:11px;color:var(--blue);flex-shrink:0;text-align:right}
+.ts-val{font-size:18px;font-weight:700;color:var(--blue)}
+.ts-lbl{font-size:9px;color:var(--faint)}
+
+/* ── DETAIL PANEL (shared) ── */
+.detail{position:fixed;top:52px;right:0;width:420px;height:calc(100vh - 52px);background:var(--bg2);border-left:1px solid var(--bdr);z-index:200;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .33s var(--ease);box-shadow:-12px 0 40px rgba(0,0,0,.55)}
+.detail.open{transform:translateX(0)}
+.d-head{padding:14px 16px;border-bottom:1px solid var(--bdr);display:flex;align-items:flex-start;gap:10px;flex-shrink:0}
+.d-title{flex:1}
+.d-name{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--txt)}
+.d-apt2{font-family:var(--mono);font-size:9px;color:var(--blue);margin-top:3px;letter-spacing:.08em}
+.d-close{padding:5px;color:var(--muted);border-radius:3px;border:none;background:none;cursor:pointer;transition:color .12s}
+.d-close:hover{color:var(--txt)}
+.d-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px}
+
+/* detail sections */
+.ds{display:flex;flex-direction:column;gap:8px}
+.ds-title{font-family:var(--mono);font-size:8px;color:var(--faint);letter-spacing:.16em;text-transform:uppercase;padding-bottom:7px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:5px}
+.ds-title::before{content:'//';color:var(--blue);font-weight:700;font-size:9px}
+.d-badges{display:flex;flex-wrap:wrap;gap:5px}
+.dbadge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:3px;font-family:var(--mono);font-size:9px;font-weight:700;border:1px solid;letter-spacing:.05em}
+.d-desc{font-size:12px;color:var(--muted);line-height:1.75}
+.meta-g{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.meta-c{background:var(--bg3);border-radius:4px;padding:8px 10px}
+.mk{font-family:var(--mono);font-size:8px;color:var(--faint);letter-spacing:.1em;text-transform:uppercase;margin-bottom:3px}
+.mv{font-family:var(--mono);font-size:11px;color:var(--txt);font-weight:600;line-height:1.4}
+.ttp-list,.mal-list,.det-list{display:flex;flex-direction:column;gap:3px}
+.ttp{display:flex;align-items:flex-start;gap:7px;padding:5px 8px;background:var(--bg3);border-left:2px solid;border-radius:3px}
+.ttp-id{font-family:var(--mono);font-size:10px;font-weight:700;white-space:nowrap;flex-shrink:0}
+.ttp-id a{color:inherit;text-decoration:none}.ttp-id a:hover{text-decoration:underline}
+.ttp-nm{font-size:11px;color:var(--muted);flex:1;line-height:1.4}
+.ttp-tac{font-family:var(--mono);font-size:7px;padding:2px 5px;border-radius:2px;white-space:nowrap;flex-shrink:0;letter-spacing:.05em}
+.mal{display:flex;gap:8px;padding:5px 10px;background:var(--bg3);border-radius:3px;align-items:center}
+.mal-name{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--txt);flex:1}
+.mal-type{font-size:10px;color:var(--muted)}
+.mal-plat{font-size:9px;color:var(--faint);background:var(--bg4);padding:1px 5px;border-radius:2px;white-space:nowrap}
+.cve-tbl{width:100%;border-collapse:collapse}
+.cve-tbl th{font-family:var(--mono);font-size:8px;color:var(--faint);text-align:left;padding:5px 5px 5px 0;border-bottom:1px solid var(--bdr);letter-spacing:.1em;text-transform:uppercase}
+.cve-tbl td{font-size:11px;color:var(--muted);padding:5px 5px 5px 0;border-bottom:1px solid var(--bdr);vertical-align:middle}
+.cve-id{font-family:var(--mono);font-weight:700;color:var(--txt)}.cve-id a{color:inherit}.cve-id a:hover{color:var(--blue)}
+.cpill{font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:2px;font-weight:700}
+.cc{background:rgba(252,129,129,.18);color:#fc8181}.ch{background:rgba(246,173,85,.18);color:#f6ad55}.cm{background:rgba(99,179,237,.18);color:#63b3ed}
+.det{display:flex;gap:8px;padding:7px 10px;background:var(--bg3);border-radius:4px;border:1px solid var(--bdr);align-items:flex-start}
+.det-src{font-family:var(--mono);font-size:8px;padding:2px 6px;border-radius:2px;background:var(--blue2);color:var(--blue);white-space:nowrap;flex-shrink:0;letter-spacing:.05em;align-self:flex-start}
+.det-link{font-size:11px;color:var(--txt);line-height:1.4}.det-link a{color:var(--blue)}.det-link a:hover{text-decoration:underline}
+.sectors-wrap{display:flex;flex-wrap:wrap;gap:4px}
+.sec-chip{font-size:10px;padding:3px 8px;border-radius:3px;background:var(--bg3);border:1px solid var(--bdr);color:var(--muted)}
+
+::-webkit-scrollbar{width:3px;height:3px}::-webkit-scrollbar-thumb{background:var(--faint);border-radius:2px}
+a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+button{border:none;background:none;color:inherit;cursor:pointer;font-family:inherit}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<header class="topbar">
+  <div class="tb-logo">
+    <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
+      <rect x="1" y="1" width="28" height="28" rx="3" stroke="#63b3ed" stroke-width="1" opacity=".4"/>
+      <polygon points="15,3 27,15 15,27 3,15" fill="none" stroke="#63b3ed" stroke-width="1.2" opacity=".7"/>
+      <circle cx="15" cy="3"  r="2" fill="#63b3ed" opacity=".8"/>
+      <circle cx="27" cy="15" r="2" fill="#63b3ed" opacity=".8"/>
+      <circle cx="15" cy="27" r="2" fill="#63b3ed" opacity=".8"/>
+      <circle cx="3"  cy="15" r="2" fill="#63b3ed" opacity=".8"/>
+      <circle cx="15" cy="15" r="3" fill="#63b3ed"/>
+    </svg>
+    <div>
+      <div class="tb-brand">APT ANALYST WORKBENCH</div>
+      <div class="tb-sub">NATION-STATE THREAT INTELLIGENCE · OPEN SOURCE</div>
+    </div>
+  </div>
+  <div class="tb-divider"></div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <div class="tab active" data-view="cluster">
+      <span class="tab-icon">◈</span> Cluster Graph
+    </div>
+    <div class="tab" data-view="diamond">
+      <span class="tab-icon">◇</span> Diamond Model
+    </div>
+    <div class="tab" data-view="matrix">
+      <span class="tab-icon">▦</span> TTP Matrix
+    </div>
+    <div class="tab" data-view="sector">
+      <span class="tab-icon">◎</span> Sector Pivot
+    </div>
+  </div>
+
+  <div class="tb-divider"></div>
+
+  <!-- SEARCH -->
+  <div class="tb-search">
+    <span class="si">⌕</span>
+    <input id="global-search" type="text" placeholder="Search groups, malware, CVEs, TTPs…" autocomplete="off">
+  </div>
+
+  <!-- STATS -->
+  <div class="tb-stats">
+    <div class="tb-stat"><span id="stat-groups">0</span> groups</div>
+    <div class="tb-stat"><span id="stat-indicted">0</span> indicted</div>
+    <div class="tb-stat"><span id="stat-cves">0</span> CVEs</div>
+    <div class="tb-stat"><span id="stat-edges">0</span> connections</div>
+  </div>
+</header>
+
+<!-- MAIN WORKSPACE -->
+<div class="workspace">
+
+  <!-- FILTER PANEL (left) -->
+  <aside class="filter-panel">
+    <div class="fp-sec">
+      <div class="fp-title">Motivation</div>
+      <div class="chip-row">
+        <span class="chip mot-esp" data-mot="espionage">Espionage</span>
+        <span class="chip mot-fin" data-mot="financial">Financial</span>
+        <span class="chip mot-des" data-mot="destructive">Destructive</span>
+        <span class="chip mot-mix" data-mot="mixed">Mixed</span>
+      </div>
+    </div>
+    <div class="fp-sec">
+      <div class="fp-title">Nation-State</div>
+      <div id="country-filter" class="country-list"></div>
+    </div>
+    <div class="fp-sec">
+      <div class="fp-title">Edge Key (Cluster)</div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div class="legend-note" style="display:flex;align-items:center;gap:6px"><span style="width:24px;height:2px;background:#b794f4;display:inline-block;border-radius:1px"></span>Shared malware</div>
+        <div class="legend-note" style="display:flex;align-items:center;gap:6px"><span style="width:24px;height:2px;background:#fc8181;display:inline-block;border-radius:1px"></span>Shared CVEs</div>
+        <div class="legend-note" style="display:flex;align-items:center;gap:6px"><span style="width:24px;height:2px;background:#63b3ed;display:inline-block;border-radius:1px"></span>Shared TTPs</div>
+      </div>
+      <div class="legend-note" style="margin-top:6px">Node size = TTP count<br>Drag nodes to reposition<br>Scroll to zoom · Click = dossier</div>
+    </div>
+    <div class="fp-sec">
+      <div class="fp-title">Diamond Model</div>
+      <div class="legend-note">Each card shows the 4 Diamond Model quadrants:<br>▲ Adversary (who)<br>▶ Capability (how)<br>▼ Victim (who targeted)<br>◀ Infrastructure (delivery)</div>
+    </div>
+  </aside>
+
+  <!-- VIEWS -->
+
+  <!-- 1. CLUSTER GRAPH -->
+  <div id="cluster-view" class="view active">
+    <svg id="cluster-svg"></svg>
+    <div id="ctip"></div>
+  </div>
+
+  <!-- 2. DIAMOND MODEL -->
+  <div id="diamond-view" class="view" style="overflow-y:auto;padding:24px">
+    <div id="diamond-container" class="diamond-grid"></div>
+  </div>
+
+  <!-- 3. TTP MATRIX -->
+  <div id="matrix-view" class="view">
+    <div id="matrix-container" style="padding:24px;overflow:auto;height:100%"></div>
+  </div>
+
+  <!-- 4. SECTOR PIVOT -->
+  <div id="sector-view" class="view" style="overflow-y:auto;padding:24px">
+    <div class="sector-intro">
+      <div class="si-title">Who's Hunting You?</div>
+      <div class="si-sub">Select your industry sector to see all nation-state APT groups that actively target it, ranked by a composite threat score (recency × confidence × capability).</div>
+    </div>
+    <div id="sector-picker" class="sector-picker"></div>
+    <div id="sector-results" class="sector-results">
+      <div class="sector-empty">← Select a sector to see who's hunting you</div>
+    </div>
+  </div>
+
+  <!-- DETAIL PANEL -->
+  <aside id="detail-panel" class="detail">
+    <div class="d-head">
+      <div class="d-title">
+        <div class="d-name" id="d-name"></div>
+        <div class="d-apt2" id="d-apt2"></div>
+      </div>
+      <button id="detail-close" class="d-close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div id="d-body" class="d-body"></div>
+  </aside>
+
+</div>
+
+<script>
+
+const GROUPS = [{"name": "Fancy Bear", "apt": "APT28", "aka": "Forest Blizzard \u00b7 STRONTIUM \u00b7 Sofacy", "country": "Russia", "agency": "GRU Unit 26165", "motivation": "espionage", "active_since": 2004, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Military", "Defense", "Think Tanks", "Media", "Political Orgs"], "targets": ["USA", "Ukraine", "Germany", "France", "UK", "NATO"], "description": "GRU Unit 26165 \u2014 hack-and-leak specialist. 2016 DNC hack, French election interference, Bundestag compromise. GooseEgg (2024) exploited CVE-2022-38028 for SYSTEM access.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1190", "Exploit Public-Facing App", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1055", "Process Injection", "defense-evasion"], ["T1003.001", "LSASS Memory", "credential-access"], ["T1048", "Exfiltration Over Alt Protocol", "exfiltration"], ["T1071.001", "Web Protocols C2", "command-and-control"]], "malware": [["X-Agent (CHOPSTICK)", "RAT", "Windows/Linux"], ["GooseEgg", "Exploit Launcher", "Windows"], ["HATVIBE", "Loader", "Windows"], ["Zebrocy", "Downloader", "Windows"], ["Komplex", "RAT", "macOS"]], "cves": [["CVE-2023-23397", 9.8, "Microsoft Outlook", 2023], ["CVE-2022-38028", 7.8, "Windows Print Spooler", 2022], ["CVE-2020-40444", 7.8, "MSHTML", 2020]], "detections": [["CISA", "AA23-198A \u2014 APT28 Exploiting CVE-2023-23397", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-198a"], ["DoJ", "Indictment \u2014 Unit 26165 Officers", "https://www.justice.gov/file/1080281/download"]], "members": [["Viktor Netyksho", "CO Unit 26165", "indicted"], ["Dmitriy Badin", "Spearphishing/C2", "indicted"], ["Nikolay Kozachek", "Malware dev (X-Agent)", "indicted"]]}, {"name": "Cozy Bear", "apt": "APT29", "aka": "Midnight Blizzard \u00b7 NOBELIUM \u00b7 The Dukes", "country": "Russia", "agency": "SVR (Foreign Intelligence Service)", "motivation": "espionage", "active_since": 2008, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Think Tanks", "Defense", "Healthcare", "Technology"], "targets": ["USA", "UK", "EU", "NATO", "Ukraine"], "description": "SVR's premier cyber arm. SUNBURST/SolarWinds (2020) breached 18,000 orgs. In 2024 compromised Microsoft corporate email via password spray and exploited JetBrains TeamCity pipelines.", "ttps": [["T1195.002", "Supply Chain Compromise", "initial-access"], ["T1078", "Valid Accounts", "persistence"], ["T1059.001", "PowerShell", "execution"], ["T1055", "Process Injection", "defense-evasion"], ["T1550.002", "Pass the Hash", "lateral-movement"], ["T1573", "Encrypted Channel", "command-and-control"]], "malware": [["SUNBURST", "Supply-chain Backdoor", "Windows"], ["WINELOADER", "Modular Backdoor", "Windows"], ["ROOTSAW", "HTML Dropper", "Windows"], ["GraceWire", "Backdoor", "Windows"], ["CozyDuke", "RAT (legacy)", "Windows"]], "cves": [["CVE-2023-42793", 9.8, "JetBrains TeamCity", 2023], ["CVE-2021-26855", 9.8, "Exchange ProxyLogon", 2021], ["CVE-2018-13379", 9.8, "Fortinet FortiOS", 2018]], "detections": [["CISA", "AA20-352A \u2014 SolarWinds Supply Chain", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa20-352a"], ["CISA", "AA24-038A \u2014 SVR Exploiting JetBrains TeamCity", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa24-038a"]], "members": []}, {"name": "Sandworm", "apt": "APT44", "aka": "Seashell Blizzard \u00b7 Voodoo Bear \u00b7 Telebots", "country": "Russia", "agency": "GRU Unit 74455", "motivation": "destructive", "active_since": 2009, "last_seen": 2025, "confidence": "high", "sectors": ["Energy & ICS", "Critical Infrastructure", "Government", "Military"], "targets": ["Ukraine", "USA", "EU", "NATO"], "description": "Most destructive cyberwarfare unit on record. Ukraine power grid attacks (2015-16), NotPetya (~$10B), Industroyer2 (2022 HV substations). Wiper deployments coordinate with kinetic military ops.", "ttps": [["T1190", "Exploit Public-Facing App", "initial-access"], ["T1078", "Valid Accounts", "persistence"], ["T1059.003", "Windows Command Shell", "execution"], ["T1485", "Data Destruction", "impact"], ["T1486", "Data Encrypted for Impact", "impact"], ["T1561.002", "Disk Structure Wipe", "impact"]], "malware": [["NotPetya", "Wiper", "Windows"], ["Industroyer2", "ICS Wiper", "ICS"], ["CaddyWiper", "Disk Wiper", "Windows"], ["HermeticWiper", "Disk Wiper", "Windows"], ["BlackEnergy", "Toolkit", "Windows/Linux"]], "cves": [["CVE-2017-0144", 9.3, "SMBv1 (NotPetya)", 2017], ["CVE-2022-42475", 9.3, "Fortinet FortiOS", 2022]], "detections": [["CISA", "AA22-076A \u2014 Destructive Malware Ukraine", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa22-076a"], ["DoJ", "Indictment \u2014 Six GRU Officers (NotPetya)", "https://www.justice.gov/opa/pr/six-russian-gru-officers-charged-connection-worldwide-deployment-destructive-malware"]], "members": [["Yuriy Andrienko", "Malware dev", "indicted"], ["Pavel Frolov", "Malware dev", "indicted"], ["Anatoliy Kovalev", "Spearphishing ops", "indicted"]]}, {"name": "Turla", "apt": "", "aka": "Secret Blizzard \u00b7 Snake \u00b7 Uroburos \u00b7 Venomous Bear", "country": "Russia", "agency": "FSB Center 16", "motivation": "espionage", "active_since": 1996, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Military", "Defense", "Diplomatic"], "targets": ["EU", "Ukraine", "Middle East", "NATO"], "description": "FSB's most sophisticated cyber unit \u2014 25+ years continuous ops. Snake P2P kernel rootkit in 50+ countries. Hijacked Iranian APT34 infrastructure for false-flag ops. Operation MEDUSA (2023) dismantled Snake globally.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1547", "Boot/Logon Autostart", "persistence"], ["T1055", "Process Injection", "defense-evasion"], ["T1003", "OS Credential Dumping", "credential-access"], ["T1573", "Encrypted Channel (P2P)", "command-and-control"], ["T1102", "Web Service (satellite C2)", "command-and-control"]], "malware": [["Snake/Uroburos", "Kernel Rootkit", "Windows"], ["Kazuar", "Backdoor (.NET)", "Windows"], ["Carbon", "Modular Backdoor", "Windows"], ["TinyTurla", "Lightweight Backdoor", "Windows"], ["ComRAT v4", "File-system RAT", "Windows"]], "cves": [["CVE-2023-36884", 7.8, "Microsoft Office OLE", 2023]], "detections": [["CISA", "AA23-129A \u2014 Hunting Snake Malware (Five Eyes)", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-129a"]], "members": []}, {"name": "Gamaredon", "apt": "", "aka": "Primitive Bear \u00b7 Shuckworm \u00b7 Aqua Blizzard \u00b7 UAC-0010", "country": "Russia", "agency": "FSB \u2014 Crimea-based unit", "motivation": "espionage", "active_since": 2013, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Military", "Critical Infrastructure"], "targets": ["Ukraine"], "description": "Highest-volume FSB unit targeting Ukrainian government and military \u2014 thousands of phishing campaigns monthly. FSB officers in occupied Crimea, five publicly identified by Ukraine SSU in 2021.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1547.001", "Registry Run Keys", "persistence"], ["T1105", "Ingress Tool Transfer", "command-and-control"]], "malware": [["Pterodo/Pteranodon", "Worm/Backdoor", "Windows"], ["GammaLoad", "Loader", "Windows"], ["GammaSteel", "Info Stealer", "Windows"], ["QuietSieve", "Info Stealer", "Windows"]], "cves": [["CVE-2022-30190", 7.8, "Microsoft MSDT Follina", 2022], ["CVE-2017-11882", 7.8, "Office Equation Editor", 2017]], "detections": [["CISA", "AA23-198A \u2014 Russian Cyber Actors", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-198a"]], "members": [["Sklianko Oleksandr", "FSB officer, Crimea", "identified"], ["Chernykh Mykola", "FSB officer, Crimea", "identified"]]}, {"name": "Cadet Blizzard", "apt": "", "aka": "Ember Bear \u00b7 UNC2589 \u00b7 UAC-0056 \u00b7 DEV-0586", "country": "Russia", "agency": "GRU Unit 161", "motivation": "destructive", "active_since": 2020, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Critical Infrastructure", "Technology"], "targets": ["Ukraine", "EU", "NATO", "USA"], "description": "GRU unit responsible for WhisperGate wiper (Jan 2022) \u2014 first destructive malware deployed before Russia's invasion. Compromised global IT providers to reach NATO/EU targets. Four members indicted 2024.", "ttps": [["T1190", "Exploit Public-Facing App", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1485", "Data Destruction", "impact"], ["T1561", "Disk Wipe", "impact"]], "malware": [["WhisperGate", "Multi-stage Wiper", "Windows"], ["CaddyWiper", "Disk Wiper", "Windows"], ["POEMGATE", "Credential Harvester", "Windows"]], "cves": [["CVE-2021-26084", 9.8, "Atlassian Confluence OGNL", 2021], ["CVE-2022-26134", 9.8, "Atlassian Confluence RCE", 2022]], "detections": [["CISA", "AA22-057A \u2014 Destructive Malware Ukraine", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa22-057a"], ["DoJ", "Indictment \u2014 Four GRU Officers (2024)", "https://www.justice.gov/opa/pr/four-russian-government-employees-charged-two-historical-hacking-campaigns-targeting-critical"]], "members": [["Amin Stigal", "GRU contractor", "indicted"], ["Mikhail Tolstykh", "GRU officer", "indicted"]]}, {"name": "COLDRIVER", "apt": "", "aka": "Star Blizzard \u00b7 SEABORGIUM \u00b7 Callisto Group \u00b7 TA446", "country": "Russia", "agency": "FSB Centre 18", "motivation": "espionage", "active_since": 2015, "last_seen": 2025, "confidence": "high", "sectors": ["Think Tanks", "Government", "Defense", "Academia", "NGO"], "targets": ["USA", "UK", "EU", "NATO", "Ukraine"], "description": "FSB Centre 18 credential phishing against Western think tanks, academics, and politicians. Masquerades as journalists. US/UK disrupted operations and sanctioned operator Andrey Korinets (Dec 2023).", "ttps": [["T1566.002", "Spearphishing Link", "initial-access"], ["T1598.003", "Spearphishing for Credentials", "credential-access"], ["T1059.001", "PowerShell", "execution"]], "malware": [["SPICA", "Backdoor (Rust)", "Windows"], ["LOSTKEYS", "Info Stealer", "Windows"]], "cves": [], "detections": [["CISA", "AA23-341A \u2014 Star Blizzard Spear-Phishing", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-341a"]], "members": [["Andrey Korinets", "FSB Centre 18", "sanctioned"], ["Ruslan Peretyatko", "FSB Centre 18", "sanctioned"]]}, {"name": "RomCom", "apt": "", "aka": "Storm-0978 \u00b7 Tropical Scorpius \u00b7 UNC2596 \u00b7 Void Rabisu", "country": "Russia", "agency": "GRU-adjacent / criminal nexus", "motivation": "mixed", "active_since": 2022, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Defense", "Healthcare", "Critical Infrastructure"], "targets": ["Ukraine", "USA", "UK", "EU", "NATO"], "description": "Dual-purpose group \u2014 Cuba ransomware (financial) and state espionage. In 2024 chained two zero-days (CVE-2024-9680 + CVE-2024-49039) for zero-interaction code execution.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1190", "Exploit Public-Facing App", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1486", "Data Encrypted for Impact", "impact"]], "malware": [["RomCom RAT", "Modular Backdoor", "Windows"], ["Cuba Ransomware", "Ransomware", "Windows"], ["PEAPOD", "Backdoor", "Windows"], ["SnipBot", "Multi-stage Backdoor", "Windows"]], "cves": [["CVE-2024-9680", 9.8, "Firefox Use-After-Free (0day)", 2024], ["CVE-2024-49039", 8.8, "Windows Task Scheduler (0day)", 2024], ["CVE-2023-36884", 7.8, "Microsoft Office OLE", 2023]], "detections": [["CISA", "AA23-061A \u2014 Cuba Ransomware", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-061a"]], "members": []}, {"name": "Double Dragon", "apt": "APT41", "aka": "BARIUM \u00b7 Brass Typhoon \u00b7 Wicked Panda \u00b7 Winnti", "country": "China", "agency": "MSS \u2014 Chengdu 404 Network Technology", "motivation": "mixed", "active_since": 2012, "last_seen": 2025, "confidence": "high", "sectors": ["Healthcare", "Telecom", "Technology", "Financial", "Government", "Defense", "Cryptocurrency"], "targets": ["USA", "India", "Japan", "South Korea", "Taiwan", "Southeast Asia"], "description": "China's dual-mission APT \u2014 MSS espionage plus financial cybercrime simultaneously. ShadowPad is their primary RAT, shared across China's intel community. Five members indicted by DoJ September 2020.", "ttps": [["T1190", "Exploit Public-Facing App", "initial-access"], ["T1195", "Supply Chain Compromise", "initial-access"], ["T1078", "Valid Accounts", "persistence"], ["T1059.001", "PowerShell", "execution"], ["T1055", "Process Injection", "defense-evasion"], ["T1003", "OS Credential Dumping", "credential-access"]], "malware": [["ShadowPad", "Modular RAT", "Windows"], ["PlugX", "Modular RAT", "Windows"], ["KeyPlug", "Backdoor", "Windows/Linux"], ["CROSSWALK", "Modular Backdoor", "Windows"], ["Cobalt Strike", "Post-exploitation", "Windows/Linux"]], "cves": [["CVE-2021-44228", 10.0, "Apache Log4Shell", 2021], ["CVE-2021-26855", 9.8, "Exchange ProxyLogon", 2021], ["CVE-2019-19781", 9.8, "Citrix ADC", 2019]], "detections": [["DoJ", "Indictment \u2014 Five APT41 Members (2020)", "https://www.justice.gov/opa/pr/seven-international-cyber-defendants-including-apt41-actors-charged-connection-computer"], ["CISA", "AA21-200A \u2014 Chinese State-Sponsored Activity", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa21-200a"]], "members": [["Zhang Haoran", "MSS contractor, Chengdu 404", "indicted"], ["Tan Dailin", "MSS contractor", "indicted"], ["Jiang Lizhi", "MSS contractor", "indicted"]]}, {"name": "Volt Typhoon", "apt": "", "aka": "BRONZE SILHOUETTE \u00b7 Vanguard Panda \u00b7 Dev-0391", "country": "China", "agency": "PLA/MSS \u2014 Critical Infrastructure Pre-positioning", "motivation": "destructive", "active_since": 2021, "last_seen": 2025, "confidence": "high", "sectors": ["Critical Infrastructure", "Energy & ICS", "Telecom", "Government", "Defense"], "targets": ["USA", "Taiwan", "Australia"], "description": "Pre-positioned inside US critical infrastructure for disruptive attacks in a Taiwan conflict scenario. Exclusively uses LotL techniques and SOHO botnets. Maintained access 5+ years before discovery.", "ttps": [["T1190", "Exploit Public-Facing App", "initial-access"], ["T1078", "Valid Accounts", "persistence"], ["T1059.003", "Windows Command Shell (LOLBins)", "execution"], ["T1036", "Masquerading", "defense-evasion"], ["T1070", "Indicator Removal", "defense-evasion"], ["T1021.001", "Remote Desktop Protocol", "lateral-movement"]], "malware": [["KV Botnet", "SOHO Router Botnet", "Embedded Linux"], ["BRICKSTORM", "ESXi Backdoor", "Linux/ESXi"], ["LOLBins (wmic/netsh)", "Living off the Land", "Windows"]], "cves": [["CVE-2023-20198", 10.0, "Cisco IOS XE Web UI", 2023], ["CVE-2024-3400", 10.0, "Palo Alto PAN-OS", 2024], ["CVE-2022-42475", 9.3, "Fortinet FortiOS", 2022]], "detections": [["CISA", "AA23-144A \u2014 Volt Typhoon US Critical Infrastructure", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-144a"], ["CISA", "AA24-038A \u2014 PRC Actors Compromise US Critical Infrastructure", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa24-038a"]], "members": []}, {"name": "Salt Typhoon", "apt": "", "aka": "Earth Estries \u00b7 GhostEmperor \u00b7 FamousSparrow", "country": "China", "agency": "MSS", "motivation": "espionage", "active_since": 2019, "last_seen": 2025, "confidence": "high", "sectors": ["Telecom", "Government", "Defense", "Technology"], "targets": ["USA", "UK", "Australia", "Canada", "India", "Southeast Asia"], "description": "Most significant US telecom breach in history \u2014 compromised Verizon, AT&T, T-Mobile, Lumen in 2024. Accessed lawful intercept (CALEA wiretap) infrastructure. Exploits Cisco IOS vulnerabilities extensively.", "ttps": [["T1190", "Exploit Public-Facing App", "initial-access"], ["T1078", "Valid Accounts", "persistence"], ["T1021.001", "Remote Desktop Protocol", "lateral-movement"], ["T1560", "Archive Collected Data", "collection"], ["T1071.001", "Web Protocols C2", "command-and-control"]], "malware": [["GhostSpider", "Backdoor", "Windows"], ["SNAPPYBEE (Deed RAT)", "Modular Backdoor", "Windows"], ["SparrowDoor", "Backdoor", "Windows"]], "cves": [["CVE-2023-20198", 10.0, "Cisco IOS XE Web UI", 2023], ["CVE-2018-0171", 9.8, "Cisco Smart Install", 2018], ["CVE-2023-20273", 7.2, "Cisco IOS XE Priv Esc", 2023]], "detections": [["CISA", "AA24-038A \u2014 Enhanced Guidance for Salt Typhoon Telecom Victims", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa24-038a"]], "members": []}, {"name": "Flax Typhoon", "apt": "", "aka": "Ethereal Panda \u00b7 RedJuliett", "country": "China", "agency": "MSS \u2014 Integrity Technology Group (front co.)", "motivation": "espionage", "active_since": 2021, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Critical Infrastructure", "Technology", "Defense"], "targets": ["Taiwan", "USA", "Southeast Asia"], "description": "Taiwan-focused MSS unit operating via Integrity Technology front company. Built 260,000-device SOHO/IoT botnet disrupted by US in 2024. Minimal footprint, long-term persistent access.", "ttps": [["T1190", "Exploit Public-Facing App", "initial-access"], ["T1078", "Valid Accounts", "persistence"], ["T1059.003", "Windows Command Shell", "execution"], ["T1036", "Masquerading", "defense-evasion"]], "malware": [["Chinoxy", "Backdoor", "Windows"], ["SoftEther VPN", "Tunnel (legitimate abuse)", "Windows/Linux"]], "cves": [["CVE-2022-30525", 9.8, "Zyxel Firewall OS Command Injection", 2022], ["CVE-2021-28799", 9.8, "QNAP NAS RCE", 2021]], "detections": [["FBI", "Court Order \u2014 Flax Typhoon Botnet Disruption (2024)", "https://www.justice.gov/opa/pr/us-government-disrupts-botnet-peoples-republic-china-used-conceal-hacking-operations"]], "members": []}, {"name": "Comment Crew", "apt": "APT1", "aka": "Shanghai Group \u00b7 Comment Panda \u00b7 Byzantine Candor", "country": "China", "agency": "PLA Unit 61398", "motivation": "espionage", "active_since": 2006, "last_seen": 2016, "confidence": "high", "sectors": ["Defense", "Energy & ICS", "Aerospace", "Technology", "Financial"], "targets": ["USA", "UK", "Canada"], "description": "PLA Unit 61398 \u2014 Mandiant's 2013 APT1 report. Stole hundreds of terabytes from 141 US companies over 7 years. Five PLA officers indicted by DoJ in 2014 \u2014 first-ever state cyber indictments.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1059.003", "Windows Command Shell", "execution"], ["T1003", "OS Credential Dumping", "credential-access"], ["T1021.002", "SMB/Admin Shares", "lateral-movement"]], "malware": [["WEBC2", "Backdoor", "Windows"], ["GH0ST RAT", "RAT", "Windows"], ["GREENCAT", "Backdoor", "Windows"]], "cves": [], "detections": [["DoJ", "Indictment \u2014 Five PLA Unit 61398 Officers (2014)", "https://www.justice.gov/opa/pr/us-charges-five-chinese-military-hackers-cyber-espionage-against-us-corporations-and-labor"], ["Mandiant", "APT1 Report \u2014 Exposing China's Espionage Unit", "https://www.mandiant.com/sites/default/files/2022-02/mandiant-apt1-report.pdf"]], "members": [["Wang Dong (UglyGorilla)", "PLA Unit 61398", "indicted"], ["Sun Kailiang", "PLA Unit 61398", "indicted"], ["Wen Xinyu", "PLA Unit 61398", "indicted"]]}, {"name": "Zirconium", "apt": "APT31", "aka": "Judgment Panda \u00b7 Bronze Vinewood \u00b7 Hurricane Panda", "country": "China", "agency": "MSS Hubei \u2014 contractor Wuhan XRZ", "motivation": "espionage", "active_since": 2010, "last_seen": 2024, "confidence": "high", "sectors": ["Government", "Political Orgs", "Think Tanks", "Defense", "Technology"], "targets": ["USA", "France", "Germany", "UK", "EU", "Australia"], "description": "MSS-attributed group targeting political figures and election campaigns globally. US/UK/EU/Australia sanctioned APT31 March 2024 \u2014 DoJ indicted seven Wuhan XRZ hackers, the largest Chinese cyber indictment.", "ttps": [["T1566.002", "Spearphishing Link", "initial-access"], ["T1078", "Valid Accounts", "persistence"], ["T1059.001", "PowerShell", "execution"], ["T1055", "Process Injection", "defense-evasion"]], "malware": [["RAWDOOR", "Backdoor", "Windows"], ["PlugX", "Modular RAT", "Windows"], ["ShadowPad", "Modular RAT", "Windows"], ["Cobalt Strike", "Post-exploitation", "Windows/Linux"]], "cves": [["CVE-2021-26855", 9.8, "Exchange ProxyLogon", 2021], ["CVE-2021-40539", 9.8, "Zoho ManageEngine ADSelfService", 2021]], "detections": [["DoJ", "Indictment \u2014 Seven Wuhan XRZ Hackers / APT31 (2024)", "https://www.justice.gov/opa/pr/seven-hackers-associated-chinese-government-charged-computer-intrusions-targeting-perceived"]], "members": [["Ni Gaobin", "Wuhan XRZ contractor", "indicted"], ["Weng Ming", "Wuhan XRZ contractor", "indicted"], ["Zhao Guangzong", "Wuhan XRZ contractor", "indicted"]]}, {"name": "Mustang Panda", "apt": "TA416", "aka": "RedDelta \u00b7 Bronze President \u00b7 Earth Preta \u00b7 Camaro Dragon", "country": "China", "agency": "MSS (assessed)", "motivation": "espionage", "active_since": 2012, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Diplomatic", "NGO", "Religious Orgs", "Media"], "targets": ["Southeast Asia", "EU", "Vatican", "Taiwan", "India"], "description": "MSS-attributed group targeting SE Asia govts, Vatican, and NGOs. Trojanises legitimate apps (NVIDIA driver, Interpol notices) as PlugX delivery. Targeted EU diplomatic entities pre-Ukraine invasion 2022.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1055", "Process Injection", "defense-evasion"], ["T1036", "Masquerading", "defense-evasion"]], "malware": [["PlugX/Korplug", "Modular RAT", "Windows"], ["Cobalt Strike", "Post-exploitation", "Windows/Linux"], ["TONESHELL", "Backdoor", "Windows"]], "cves": [["CVE-2017-11882", 7.8, "Office Equation Editor", 2017]], "detections": [["ESET", "ESET Research: Mustang Panda Targets Europe", "https://www.welivesecurity.com/2022/03/23/mustang-pandas-hodur-old-tricks-new-korplug-variant/"]], "members": []}, {"name": "Velvet Ant", "apt": "APT40", "aka": "BRONZE MOHAWK \u00b7 Leviathan \u00b7 TEMP.Periscope \u00b7 GADOLINIUM", "country": "China", "agency": "MSS \u2014 Hainan State Security Dept.", "motivation": "espionage", "active_since": 2013, "last_seen": 2025, "confidence": "high", "sectors": ["Military", "Defense", "Maritime", "Aviation", "Government"], "targets": ["USA", "UK", "Australia", "EU", "Southeast Asia"], "description": "MSS Hainan APT focused on maritime, defense, and naval research intel. Rapid CVE exploitation. Four officers indicted July 2021. 2024 Five Eyes advisory: active exploitation of end-of-life SOHO devices.", "ttps": [["T1190", "Exploit Public-Facing App", "initial-access"], ["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1078", "Valid Accounts", "persistence"], ["T1055", "Process Injection", "defense-evasion"], ["T1003", "OS Credential Dumping", "credential-access"]], "malware": [["AIRBREAK", "JavaScript Backdoor", "Windows"], ["BADFLICK", "RAT", "Windows"], ["ScanBox", "Browser Recon Framework", "JavaScript"], ["China Chopper", "Web Shell", "Web Servers"]], "cves": [["CVE-2021-44228", 10.0, "Apache Log4Shell", 2021], ["CVE-2021-26855", 9.8, "Exchange ProxyLogon", 2021], ["CVE-2021-26084", 9.8, "Atlassian Confluence", 2021]], "detections": [["DoJ", "Indictment \u2014 Four MSS Hainan Officers (2021)", "https://www.justice.gov/opa/pr/four-chinese-nationals-working-ministry-state-security-indicted-global-computer-intrusion"], ["CISA", "AA24-190A \u2014 Five Eyes APT40 Advisory (2024)", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa24-190a"]], "members": [["Ding Xiaoyang", "MSS Hainan", "indicted"], ["Cheng Qingmin", "MSS Hainan", "indicted"]]}, {"name": "Stone Panda", "apt": "APT10", "aka": "Cicada \u00b7 MenuPass \u00b7 Cloud Hopper \u00b7 Bronze Riverside", "country": "China", "agency": "MSS \u2014 Tianjin State Security Bureau", "motivation": "espionage", "active_since": 2009, "last_seen": 2024, "confidence": "high", "sectors": ["Technology", "Healthcare", "Government", "Defense", "Financial", "Telecom"], "targets": ["USA", "Japan", "Australia", "UK", "EU"], "description": "Operation Cloud Hopper \u2014 compromised MSPs globally for downstream client access. Two members indicted December 2018. Joint attribution by Japan, Australia, UK, EU, and US.", "ttps": [["T1199", "Trusted Relationship (MSP)", "initial-access"], ["T1078", "Valid Accounts", "persistence"], ["T1055", "Process Injection", "defense-evasion"], ["T1003", "OS Credential Dumping", "credential-access"], ["T1048", "Exfiltration Over Alt Protocol", "exfiltration"]], "malware": [["PlugX", "Modular RAT", "Windows"], ["QuasarRAT", "Open-source RAT", "Windows"], ["RedLeaves", "Backdoor", "Windows"]], "cves": [["CVE-2018-13379", 9.8, "Fortinet FortiOS SSL VPN", 2018], ["CVE-2019-11510", 10.0, "Pulse Connect Secure SSL VPN", 2019]], "detections": [["DoJ", "Indictment \u2014 Two MSS Tianjin Officers, Cloud Hopper (2018)", "https://www.justice.gov/opa/pr/two-chinese-hackers-associated-ministry-state-security-charged-global-computer-intrusion"]], "members": [["Zhu Hua", "MSS Tianjin contractor", "indicted"], ["Zhang Shilong", "MSS Tianjin contractor", "indicted"]]}, {"name": "Ke3chang", "apt": "APT15", "aka": "Vixen Panda \u00b7 GREF \u00b7 Nickel \u00b7 Royal APT", "country": "China", "agency": "PLA/MSS \u2014 diplomatic-focus unit", "motivation": "espionage", "active_since": 2010, "last_seen": 2024, "confidence": "high", "sectors": ["Government", "Diplomatic", "Think Tanks", "Defense", "Energy & ICS"], "targets": ["EU", "UK", "Latin America", "Middle East", "Africa"], "description": "Long-running APT targeting diplomatic missions, foreign ministries, and embassies. Active against Latin American and African governments rarely covered by threat intel. Custom Okrum and MirageFox malware.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1547.001", "Registry Run Keys", "persistence"], ["T1003", "OS Credential Dumping", "credential-access"], ["T1071.001", "Web Protocols C2", "command-and-control"]], "malware": [["Okrum", "Backdoor", "Windows"], ["MirageFox", "Backdoor", "Windows"], ["BS2005", "RAT", "Windows"]], "cves": [["CVE-2020-0688", 8.8, "Exchange Validation Key", 2020]], "detections": [["Microsoft", "MSTIC: NICKEL Targeting Government Orgs in Latin America and Europe", "https://www.microsoft.com/en-us/security/blog/2021/12/06/nickel-targeting-government-organizations-across-latin-america-and-europe/"]], "members": []}, {"name": "BlackTech", "apt": "", "aka": "Palmerworm \u00b7 Circuit Panda \u00b7 TEMP.Overboard", "country": "China", "agency": "MSS (Taiwan-focused unit)", "motivation": "espionage", "active_since": 2010, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Defense", "Technology", "Telecom", "Electronics"], "targets": ["Taiwan", "Japan", "USA", "Southeast Asia"], "description": "MSS unit deep-focused on Taiwan, Japan, and US defense industrial base. In 2023 NSA/CISA revealed BlackTech modifies Cisco router firmware to create covert backdoors surviving reboots. Unique hardware-level persistence.", "ttps": [["T1190", "Exploit Public-Facing App", "initial-access"], ["T1542.001", "System Firmware Modification", "persistence"], ["T1078", "Valid Accounts", "persistence"]], "malware": [["PLEAD", "Backdoor", "Windows"], ["TSCookie", "Backdoor", "Windows"], ["Custom Cisco Router Implant", "Firmware Backdoor", "Cisco IOS"]], "cves": [["CVE-2019-1649", 6.7, "Cisco Router Thrangrycat", 2019]], "detections": [["CISA", "AA23-144B \u2014 BlackTech Targets Routers US/Japan", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-144b"]], "members": []}, {"name": "Lazarus Group", "apt": "", "aka": "HIDDEN COBRA \u00b7 Guardians of Peace \u00b7 Zinc \u00b7 TEMP.Hermit", "country": "North Korea", "agency": "RGB Bureau 121", "motivation": "mixed", "active_since": 2009, "last_seen": 2025, "confidence": "high", "sectors": ["Cryptocurrency", "Defense", "Aerospace", "Government", "Financial", "Healthcare"], "targets": ["USA", "South Korea", "Japan", "Global (Crypto)"], "description": "World's most prolific state-sponsored financial threat. Sony (2014), $81M SWIFT heist, WannaCry, $3B+ crypto theft funding DPRK WMD programs. 2024: Operation DreamJob (nuclear sector) and Operation 99 (Web3 via fake LinkedIn).", "ttps": [["T1566.002", "Spearphishing Link (DreamJob lures)", "initial-access"], ["T1195", "Supply Chain Compromise", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1055", "Process Injection", "defense-evasion"], ["T1027", "Obfuscated Files", "defense-evasion"], ["T1003", "OS Credential Dumping", "credential-access"], ["T1486", "Data Encrypted for Impact", "impact"]], "malware": [["CookiePlus", "Backdoor", "Windows"], ["MagicRAT", "RAT (Qt)", "Windows"], ["NukeSped", "RAT", "Windows"], ["AppleJeus", "Crypto-theft Trojan", "macOS/Windows"], ["WannaCry", "Ransomware Worm", "Windows"], ["ELECTRICFISH", "Tunneling", "Windows"]], "cves": [["CVE-2021-44228", 10.0, "Apache Log4Shell", 2021], ["CVE-2023-46604", 10.0, "Apache ActiveMQ RCE", 2023], ["CVE-2024-3400", 10.0, "Palo Alto PAN-OS", 2024]], "detections": [["CISA", "AA22-108A \u2014 TraderTraitor: DPRK Targets Blockchain", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa22-108a"], ["DoJ", "Indictment \u2014 Park Jin Hyok (2018) & Jon Chang Hyok (2021)", "https://www.justice.gov/opa/pr/three-north-korean-military-hackers-indicted-wide-ranging-scheme-commit-cyberattacks-and"]], "members": [["Park Jin Hyok", "RGB Bureau 121", "indicted"], ["Jon Chang Hyok", "RGB Bureau 121", "indicted"], ["Kim Il", "RGB Bureau 121", "indicted"]]}, {"name": "BlueNoroff", "apt": "APT38", "aka": "Stardust Chollima \u00b7 BeagleBoyz \u00b7 NICKEL GLADSTONE", "country": "North Korea", "agency": "RGB \u2014 Financial crimes sub-unit", "motivation": "financial", "active_since": 2014, "last_seen": 2025, "confidence": "high", "sectors": ["Financial", "Cryptocurrency", "Banking"], "targets": ["Global (Crypto)", "South Korea", "USA", "Southeast Asia"], "description": "DPRK dedicated financial theft unit \u2014 $2B+ from SWIFT banks and crypto. FASTCash ATM cash-out across 30+ countries. ByBit exchange hack (Feb 2025) attributed \u2014 $1.5B stolen. Revenue funds DPRK nuclear program.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1055", "Process Injection", "defense-evasion"], ["T1003", "OS Credential Dumping", "credential-access"], ["T1485", "Data Destruction (post-theft)", "impact"]], "malware": [["FASTCash", "ATM/SWIFT Malware", "AIX/Windows"], ["FULLHOUSE", "Backdoor", "Windows"], ["Hermes", "Ransomware/Wiper (cover)", "Windows"], ["ELECTRICFISH", "Tunneling", "Windows"]], "cves": [["CVE-2022-30190", 7.8, "Microsoft MSDT Follina", 2022], ["CVE-2021-26855", 9.8, "Exchange ProxyLogon", 2021]], "detections": [["CISA", "AA20-239A \u2014 FASTCash 2.0 DPRK ATM Campaign", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa20-239a"], ["FBI", "PSA250226 \u2014 North Korea ByBit $1.5B Hack", "https://www.ic3.gov/Media/Y2025/PSA250226"]], "members": []}, {"name": "Kimsuky", "apt": "", "aka": "Velvet Chollima \u00b7 Emerald Sleet \u00b7 THALLIUM \u00b7 Springtail", "country": "North Korea", "agency": "RGB (Reconnaissance General Bureau)", "motivation": "espionage", "active_since": 2012, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Defense", "Think Tanks", "Nuclear", "Academia", "Media"], "targets": ["South Korea", "USA", "Japan", "EU"], "description": "DPRK intelligence collection unit gathering foreign policy, nuclear, and defense intel for regime decision-making. Impersonates journalists and academics in long-term social engineering campaigns.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1566.002", "Spearphishing Link", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1056.001", "Keylogging", "credential-access"], ["T1560", "Archive Collected Data", "collection"]], "malware": [["BabyShark", "PowerShell RAT", "Windows"], ["AppleSeed", "Backdoor", "Windows"], ["KONNI", "RAT", "Windows"], ["GoldDragon", "Backdoor cluster", "Windows"]], "cves": [["CVE-2021-26855", 9.8, "Exchange ProxyLogon", 2021], ["CVE-2022-30190", 7.8, "Microsoft MSDT Follina", 2022]], "detections": [["CISA", "AA20-301A \u2014 North Korean Kimsuky Overview", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa20-301a"]], "members": []}, {"name": "Andariel", "apt": "APT45", "aka": "Onyx Sleet \u00b7 Silent Chollima \u00b7 Stonefly \u00b7 PLUTONIUM", "country": "North Korea", "agency": "RGB Lab 110", "motivation": "mixed", "active_since": 2009, "last_seen": 2025, "confidence": "high", "sectors": ["Defense", "Healthcare", "Critical Infrastructure", "Government"], "targets": ["South Korea", "USA", "Japan", "India"], "description": "RGB Lab 110 conducting both espionage and ransomware. Targeted US healthcare with Maui ransomware (2021-22). In 2024 expanded nuclear espionage globally. Rim Jong Hyok indicted by DoJ.", "ttps": [["T1190", "Exploit Public-Facing App", "initial-access"], ["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1486", "Data Encrypted for Impact", "impact"], ["T1003", "OS Credential Dumping", "credential-access"]], "malware": [["Maui", "Ransomware", "Windows"], ["Dtrack", "RAT", "Windows"], ["TigerRAT", "RAT", "Windows"], ["NukeSped", "RAT", "Windows"]], "cves": [["CVE-2021-44228", 10.0, "Apache Log4Shell", 2021], ["CVE-2022-47966", 9.8, "Zoho ManageEngine unauthenticated RCE", 2022]], "detections": [["CISA", "AA22-187A \u2014 North Korea Maui Ransomware Targeting Healthcare", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa22-187a"], ["DoJ", "Indictment \u2014 Rim Jong Hyok (Andariel 2024)", "https://www.justice.gov/opa/pr/north-korean-government-hacker-charged-involvement-ransomware-attacks-us-hospitals"]], "members": [["Rim Jong Hyok", "RGB Lab 110", "indicted"]]}, {"name": "ScarCruft", "apt": "APT37", "aka": "Reaper \u00b7 Group123 \u00b7 InkySquid \u00b7 Ricochet Chollima", "country": "North Korea", "agency": "Ministry of State Security (MSS-NK)", "motivation": "espionage", "active_since": 2012, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Defense", "Media", "Think Tanks", "Diplomatic"], "targets": ["South Korea", "Japan", "EU", "Middle East"], "description": "MSS-NK unit targeting South Korean government, defectors, and foreign policy entities. Exploits Hangul Word Processor (HWP) vulnerabilities. RokRAT uses OneDrive/Dropbox as C2 channels.", "ttps": [["T1566.001", "Spearphishing Attachment (HWP)", "initial-access"], ["T1203", "Exploitation for Client Execution", "execution"], ["T1102", "Web Service C2 (cloud storage)", "command-and-control"], ["T1560", "Archive Collected Data", "collection"]], "malware": [["RokRAT", "Cloud-based RAT", "Windows"], ["Goldbackdoor", "Backdoor", "Windows"], ["DOGCALL", "Backdoor", "Windows"]], "cves": [["CVE-2021-26411", 8.8, "Internet Explorer Memory Corruption", 2021], ["CVE-2022-41128", 8.8, "Windows Scripting Languages RCE", 2022]], "detections": [["Mandiant", "APT37: North Korea's Overlooked Threat Actor", "https://www.mandiant.com/resources/blog/apt37-overlooked-north-korean-actor"]], "members": []}, {"name": "Charming Kitten", "apt": "APT35", "aka": "Mint Sandstorm \u00b7 PHOSPHORUS \u00b7 Magic Hound \u00b7 TA453", "country": "Iran", "agency": "IRGC (Islamic Revolutionary Guard Corps)", "motivation": "espionage", "active_since": 2014, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Think Tanks", "Defense", "Academia", "Media", "Healthcare"], "targets": ["USA", "Israel", "UK", "EU", "Middle East", "Saudi Arabia"], "description": "IRGC unit targeting dissidents, journalists, and officials. Extended rapport as fake journalists before delivering malware. Exploited Log4Shell within hours of public disclosure. NokNok backdoor targets macOS.", "ttps": [["T1566.002", "Spearphishing Link", "initial-access"], ["T1190", "Exploit Public-Facing App", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1056.001", "Keylogging", "credential-access"], ["T1003", "OS Credential Dumping", "credential-access"]], "malware": [["POWERSTAR/CharmPower", "PowerShell Backdoor", "Windows"], ["HYPERSCRAPE", "Email Data Stealer", "Windows"], ["NokNok", "Backdoor", "macOS"], ["BellaCiao", "Web Shell", "Windows"], ["BASICSTAR", "Backdoor", "Windows"]], "cves": [["CVE-2021-44228", 10.0, "Apache Log4Shell", 2021], ["CVE-2022-47966", 9.8, "Zoho ManageEngine", 2022], ["CVE-2023-3519", 9.8, "Citrix NetScaler RCE", 2023]], "detections": [["CISA", "AA24-241A \u2014 Iran Cyber Actors Targeting Critical Infrastructure", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa24-241a"], ["CISA", "AA22-257A \u2014 IRGC-Affiliated Cyber Actors", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa22-257a"]], "members": []}, {"name": "OilRig", "apt": "APT34", "aka": "Helix Kitten \u00b7 COBALT GYPSY \u00b7 Crambus \u00b7 EUROPIUM", "country": "Iran", "agency": "MOIS (Ministry of Intelligence and Security)", "motivation": "espionage", "active_since": 2014, "last_seen": 2025, "confidence": "high", "sectors": ["Energy & ICS", "Government", "Financial", "Telecom", "Defense"], "targets": ["Middle East", "Saudi Arabia", "UAE", "Israel", "Iraq", "USA"], "description": "MOIS unit targeting Middle East governments and energy sector. Heavily uses DNS tunnelling C2 (DNSExfiltrator, DNSpionage). Tools leaked on Telegram in 2019. Operates alongside APT33 across oil/gas sector.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1071.004", "DNS Tunnelling C2", "command-and-control"], ["T1059.001", "PowerShell", "execution"], ["T1047", "WMI Execution", "execution"], ["T1003", "OS Credential Dumping", "credential-access"], ["T1560", "Archive Collected Data", "collection"]], "malware": [["RDAT", "Exchange-based Backdoor", "Windows"], ["BONDUPDATER", "DNS Tunnelling Backdoor", "Windows"], ["DNSpionage", "DNS Tunnelling Tool", "Windows"], ["SideTwist", "Backdoor", "Windows"], ["Saitama", "Outlook-based Backdoor", "Windows"]], "cves": [["CVE-2021-26855", 9.8, "Exchange ProxyLogon", 2021], ["CVE-2020-0688", 8.8, "Exchange Validation Key", 2020]], "detections": [["CISA", "AA21-321A \u2014 Iranian Government-Sponsored APT Actors", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa21-321a"]], "members": []}, {"name": "MuddyWater", "apt": "", "aka": "Static Kitten \u00b7 MERCURY \u00b7 Seedworm \u00b7 TA450 \u00b7 Yellow Nix", "country": "Iran", "agency": "MOIS (Ministry of Intelligence and Security)", "motivation": "espionage", "active_since": 2017, "last_seen": 2025, "confidence": "high", "sectors": ["Government", "Telecom", "Defense", "Energy & ICS", "Financial"], "targets": ["Middle East", "USA", "EU", "Israel", "Saudi Arabia", "Turkey"], "description": "MOIS unit deploying legitimate RMM tools (AnyDesk, SimpleHelp) as C2 to blend with normal IT traffic. PhonyC2 is their custom PowerShell C2 framework. BugSleep backdoor deployed against Israel post-October 7.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1047", "WMI Execution", "execution"], ["T1219", "Remote Access Software (AnyDesk)", "command-and-control"]], "malware": [["PhonyC2", "PowerShell C2 Framework", "Windows"], ["BugSleep", "Custom Backdoor", "Windows"], ["DarkBit", "Ransomware (Israel ops)", "Windows"], ["PowGoop", "Loader", "Windows"]], "cves": [["CVE-2020-0688", 8.8, "Exchange Validation Key", 2020], ["CVE-2021-26855", 9.8, "Exchange ProxyLogon", 2021]], "detections": [["CISA", "AA22-055A \u2014 Iranian Government-Sponsored Actors", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa22-055a"]], "members": []}, {"name": "Refined Kitten", "apt": "APT33", "aka": "Peach Sandstorm \u00b7 HOLMIUM \u00b7 Elfin \u00b7 Magnallium", "country": "Iran", "agency": "IRGC \u2014 aerospace and energy focus", "motivation": "mixed", "active_since": 2013, "last_seen": 2025, "confidence": "high", "sectors": ["Energy & ICS", "Aviation", "Defense", "Government", "Financial"], "targets": ["Saudi Arabia", "USA", "South Korea", "EU", "Middle East"], "description": "IRGC unit focused on energy, aviation, and defense. Deployed Shamoon 2 wiper against Saudi petrochemical companies. 2023: massive password spray campaign. 2024: UAE aviation sector compromised.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1110.003", "Password Spraying", "credential-access"], ["T1078", "Valid Accounts", "persistence"], ["T1059.001", "PowerShell", "execution"], ["T1485", "Data Destruction (Shamoon)", "impact"]], "malware": [["DROPSHOT/SHAPESHIFT", "Dropper/Wiper", "Windows"], ["Shamoon 2/DistTrack", "Destructive Wiper", "Windows"], ["TURNEDUP", "Backdoor", "Windows"], ["NANOCORE", "RAT", "Windows"]], "cves": [["CVE-2023-3519", 9.8, "Citrix NetScaler RCE", 2023], ["CVE-2022-47966", 9.8, "Zoho ManageEngine", 2022]], "detections": [["CISA", "AA23-290A \u2014 Peach Sandstorm Password Spray Campaign", "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-290a"]], "members": []}, {"name": "APT39", "apt": "APT39", "aka": "Chafer \u00b7 Remix Kitten \u00b7 ITG07 \u00b7 COBALT HICKMAN", "country": "Iran", "agency": "MOIS \u2014 telecom/travel targeting", "motivation": "espionage", "active_since": 2014, "last_seen": 2024, "confidence": "high", "sectors": ["Telecom", "Travel", "Government", "Technology", "Healthcare"], "targets": ["Middle East", "USA", "EU", "Australia", "South Korea"], "description": "MOIS unit tracking individuals via telecom and travel sector compromise. Gains CDR (call detail records), geolocation, and travel booking access. Sanctioned by US Treasury alongside APT34 in 2020.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1003", "OS Credential Dumping", "credential-access"], ["T1530", "Data from Cloud Storage", "collection"]], "malware": [["SEAWEED", "Backdoor", "Windows"], ["CACHEMONEY", "Backdoor", "Windows"], ["POWBAT", "PowerShell Backdoor", "Windows"]], "cves": [["CVE-2018-13379", 9.8, "Fortinet FortiOS SSL VPN", 2018]], "detections": [["Mandiant", "APT39: Iranian Group Focused on Personal Information", "https://www.mandiant.com/resources/blog/apt39-iranian-cyber-espionage-group-focused-on-personal-information"]], "members": []}, {"name": "Agrius", "apt": "", "aka": "Pink Sandstorm \u00b7 Agonizing Serpens \u00b7 DEV-0227", "country": "Iran", "agency": "IRGC (assessed)", "motivation": "destructive", "active_since": 2020, "last_seen": 2024, "confidence": "high", "sectors": ["Technology", "Academia", "Government", "Defense"], "targets": ["Israel", "UAE", "South Africa"], "description": "Iran-attributed wiper group focused on Israeli targets, deploying destructive malware disguised as ransomware. Fantasy wiper targeted diamond industry across South Africa, Israel, Hong Kong. Moneybird ransomware (2023) used as wiper.", "ttps": [["T1190", "Exploit Public-Facing App", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1485", "Data Destruction", "impact"], ["T1486", "Data Encrypted for Impact (fake ransomware)", "impact"]], "malware": [["Fantasy", "Wiper", "Windows"], ["Moneybird", "Wiper disguised as ransomware", "Windows"], ["DEADWOOD", "Wiper", "Windows"], ["IPsec Helper", "Backdoor", "Windows"]], "cves": [["CVE-2018-13379", 9.8, "Fortinet FortiOS SSL VPN", 2018]], "detections": [["ESET", "ESET Research: Agrius Fantasy Wiper \u2014 Diamond Industry", "https://www.welivesecurity.com/2022/05/03/new-eset-research-agrius-group-malware-diamond-industry/"]], "members": []}, {"name": "OceanLotus", "apt": "APT32", "aka": "SeaLotus \u00b7 Canvas Cyclone \u00b7 BISMUTH \u00b7 Cobalt Kitty", "country": "Vietnam", "agency": "Vietnamese Government \u2014 Ministry of Public Security", "motivation": "espionage", "active_since": 2014, "last_seen": 2024, "confidence": "high", "sectors": ["Government", "Automotive", "Technology", "Media", "Civil Society"], "targets": ["China", "Southeast Asia", "USA", "Germany"], "description": "Vietnamese state APT targeting ASEAN govts, foreign companies in Vietnam, and journalists. Targeted BMW and Hyundai (2019) for automotive IP. Uses Facebook and cloud services as C2 channels.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1102", "Web Service C2 (Facebook)", "command-and-control"], ["T1036", "Masquerading", "defense-evasion"]], "malware": [["KerrDown", "Downloader", "Windows"], ["OceanSalt", "Backdoor", "Windows"], ["Cobalt Strike", "Post-exploitation", "Windows/Linux"], ["METALJACK", "Backdoor", "macOS"]], "cves": [["CVE-2017-11882", 7.8, "Office Equation Editor", 2017], ["CVE-2018-8174", 7.5, "Windows VBScript Engine", 2018]], "detections": [["Mandiant", "APT32 and the Threat to Global Corporations", "https://www.mandiant.com/resources/blog/cyber-espionage-apt32"]], "members": []}, {"name": "Transparent Tribe", "apt": "APT36", "aka": "COPPER FIELDSTONE \u00b7 Mythic Leopard \u00b7 APT-C-56", "country": "Pakistan", "agency": "Pakistani ISI (assessed)", "motivation": "espionage", "active_since": 2013, "last_seen": 2025, "confidence": "high", "sectors": ["Military", "Government", "Defense", "Education"], "targets": ["India", "Afghanistan", "USA"], "description": "Pakistan-attributed group almost exclusively targeting Indian military and government. Distributes CrimsonRAT via fake Indian government job portals and honeytrap apps. Expanded to Linux and Android platforms.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1204.002", "Malicious File Execution", "execution"], ["T1059.001", "PowerShell", "execution"], ["T1071.001", "Web Protocols C2", "command-and-control"]], "malware": [["CrimsonRAT", "RAT", "Windows"], ["ObliqueRAT", "RAT", "Windows"], ["CAPRAT", "Android RAT", "Android"]], "cves": [["CVE-2017-11882", 7.8, "Office Equation Editor", 2017]], "detections": [["Mandiant", "Transparent Tribe (APT36): Pakistani Threat Actor", "https://www.mandiant.com/resources/blog/proactive-threat-identification-neutralizes-remote-access-trojan-in-south-asia"]], "members": [["Haroon Baig", "Identified member", "identified"], ["Faizan Anwer", "Identified member", "identified"]]}, {"name": "SideCopy", "apt": "", "aka": "", "country": "Pakistan", "agency": "Pakistani Government \u2014 mirrors Transparent Tribe TTPs", "motivation": "espionage", "active_since": 2019, "last_seen": 2025, "confidence": "medium", "sectors": ["Military", "Government", "Defense"], "targets": ["India", "Afghanistan"], "description": "Named for copying SideWinder's infection chain. Targets Indian defence personnel with HTA-based delivery chains and malicious APK apps impersonating DoD/MoD portals. Deploys AllaKore RAT alongside CrimsonRAT.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1071.001", "Web Protocols C2", "command-and-control"]], "malware": [["AllaKore RAT", "RAT", "Windows"], ["CrimsonRAT", "RAT", "Windows"], ["MargulasRAT", "RAT", "Windows"]], "cves": [], "detections": [["Seqrite", "SideCopy APT: Targeting Indian Defence Forces", "https://www.seqrite.com/blog/sidecopy-apt-targeting-indian-defence/"]], "members": []}, {"name": "SideWinder", "apt": "APT-C-17", "aka": "Rattlesnake \u00b7 T-APT-04 \u00b7 HoneyMyte \u00b7 Razor Tiger", "country": "India", "agency": "Indian Government \u2014 Military Intelligence (assessed)", "motivation": "espionage", "active_since": 2012, "last_seen": 2025, "confidence": "medium", "sectors": ["Military", "Government", "Defense", "Maritime"], "targets": ["Pakistan", "China", "Nepal", "Sri Lanka", "Bangladesh", "Afghanistan", "Southeast Asia"], "description": "India-attributed APT with extremely high-volume spearphishing \u2014 1,000+ attacks/year. In 2023-24 expanded to Middle East, Africa, and maritime organisations. Uses .lnk files and RTF exploits extensively.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1059.001", "PowerShell", "execution"], ["T1059.005", "Visual Basic", "execution"], ["T1036", "Masquerading", "defense-evasion"]], "malware": [["ModuleInstaller", "Loader", "Windows"], ["WarHawk", "Backdoor", "Windows"], ["SFX RAT", "Self-extracting Backdoor", "Windows"]], "cves": [["CVE-2017-11882", 7.8, "Office Equation Editor", 2017], ["CVE-2021-26855", 9.8, "Exchange ProxyLogon", 2021]], "detections": [["Kaspersky", "SideWinder APT Group \u2014 Highly Active in 2020", "https://securelist.com/sidewinder-apt-group/97608/"]], "members": []}, {"name": "StrongPity", "apt": "", "aka": "PROMETHIUM \u00b7 APT-C-41 \u00b7 Magenta Dust", "country": "Turkey", "agency": "Turkish MIT (assessed)", "motivation": "espionage", "active_since": 2012, "last_seen": 2024, "confidence": "medium", "sectors": ["Government", "Telecom", "Political Targets", "Kurdish Community"], "targets": ["Turkey", "Syria", "Italy", "Belgium", "India"], "description": "Turkey-attributed APT targeting Kurdish communities, dissidents, and political opponents. In 2018 abused T\u00fcrk Telekom ISP for HTTP interception. Trojanises legitimate software installers (Notepad++, WinRAR) as delivery.", "ttps": [["T1566.001", "Spearphishing Attachment", "initial-access"], ["T1056.004", "Credential API Hooking", "credential-access"], ["T1036.005", "Match Legitimate Name", "defense-evasion"]], "malware": [["StrongPity Backdoor", "Modular Backdoor", "Windows/Android"]], "cves": [], "detections": [["ESET", "ESET Research: PROMETHIUM Extends Global Reach", "https://www.welivesecurity.com/2020/07/09/promethium-extends-global-reach-europe-asia/"]], "members": []}, {"name": "Ghostwriter", "apt": "UNC1151", "aka": "UNC1151 \u00b7 UAC-0051", "country": "Belarus", "agency": "Belarusian Military Intelligence / Russian coordination", "motivation": "espionage", "active_since": 2017, "last_seen": 2024, "confidence": "high", "sectors": ["Government", "Media", "Political Orgs", "Military"], "targets": ["Poland", "Lithuania", "Latvia", "Germany", "Ukraine", "NATO"], "description": "Belarusian/Russian joint operation conducting influence operations alongside credential harvesting. Compromises social media and publication platforms to plant false content targeting NATO members.", "ttps": [["T1566.002", "Spearphishing Link", "initial-access"], ["T1598.003", "Spearphishing for Credentials", "credential-access"], ["T1059.001", "PowerShell", "execution"]], "malware": [["MicroBackdoor", "Lightweight Backdoor", "Windows"]], "cves": [], "detections": [["EU", "EU Declaration Condemning Ghostwriter/UNC1151 (2021)", "https://www.consilium.europa.eu/en/press/press-releases/2021/09/24/declaration-by-the-high-representative-on-behalf-of-the-european-union/"]], "members": []}, {"name": "Unit 8200 Operators", "apt": "", "aka": "Stuxnet ops \u00b7 Duqu ops \u00b7 Flame ops", "country": "Israel", "agency": "Unit 8200 (SIGINT) / IDF Intelligence Directorate", "motivation": "destructive", "active_since": 2007, "last_seen": 2015, "confidence": "medium", "sectors": ["Nuclear", "Critical Infrastructure", "Government"], "targets": ["Iran", "Middle East"], "description": "Jointly attributed (with NSA) to developing Stuxnet \u2014 the first publicly-known cyberweapon \u2014 destroying ~1,000 Iranian centrifuges at Natanz. Stuxnet, Duqu, Flame, and Gauss share code-level relationships.", "ttps": [["T1195", "Supply Chain Compromise (USB)", "initial-access"], ["T1542.001", "System Firmware Modification", "persistence"], ["T1485", "Data Destruction (PLC sabotage)", "impact"]], "malware": [["Stuxnet", "ICS/SCADA Cyberweapon", "Windows/Siemens PLC"], ["Duqu", "Espionage Platform", "Windows"], ["Flame", "Modular Espionage Toolkit", "Windows"]], "cves": [["CVE-2010-2568", 9.3, "Windows LNK Shortcut (Stuxnet 0day)", 2010]], "detections": [["Kaspersky", "Stuxnet Under the Microscope (ICS-CERT)", "https://ics-cert.kaspersky.com/wp-content/uploads/sites/6/2021/10/ksb-stuxnet-under-the-microscope.pdf"]], "members": []}, {"name": "Lebanese Cedar", "apt": "", "aka": "Volatile Cedar \u00b7 STOMP", "country": "Lebanon", "agency": "Hezbollah-affiliated / Lebanese State Intelligence", "motivation": "espionage", "active_since": 2012, "last_seen": 2024, "confidence": "medium", "sectors": ["Defense", "Telecom", "Technology", "Government"], "targets": ["Israel", "USA", "Saudi Arabia", "Egypt", "Jordan"], "description": "Hezbollah-tied group running global campaigns against defense and telecom in Israel and the Middle East. Uses Explosive RAT and Caterpillar web shells. Targeted US telecoms in 2021.", "ttps": [["T1190", "Exploit Public-Facing App", "initial-access"], ["T1059.003", "Windows Command Shell", "execution"], ["T1560", "Archive Collected Data", "collection"]], "malware": [["Explosive RAT", "RAT", "Windows"], ["Caterpillar", "Web Shell", "Web Servers"], ["SharpStage", "Backdoor", "Windows"]], "cves": [["CVE-2018-13379", 9.8, "Fortinet FortiOS SSL VPN", 2018]], "detections": [["ClearSky", "Lebanese Cedar APT Global Espionage Campaign", "https://www.clearskysec.com/lebanese-cedar/"]], "members": []}];
+const EDGES  = [{"source": 0, "target": 7, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 0, "target": 8, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 0, "target": 14, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 0, "target": 15, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 0, "target": 20, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 0, "target": 22, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 0, "target": 31, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 0, "target": 32, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 1, "target": 8, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 1, "target": 13, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 1, "target": 15, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 1, "target": 16, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2018-13379"]}, {"source": 1, "target": 20, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 1, "target": 21, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 1, "target": 25, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 1, "target": 26, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 1, "target": 28, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2018-13379"]}, {"source": 1, "target": 29, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2018-13379"]}, {"source": 1, "target": 33, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 2, "target": 5, "weight": 5, "shared_mal": ["CaddyWiper"], "shared_cve": []}, {"source": 2, "target": 9, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2022-42475"]}, {"source": 2, "target": 11, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 2, "target": 29, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 3, "target": 7, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2023-36884"]}, {"source": 3, "target": 15, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 3, "target": 20, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 4, "target": 14, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2017-11882"]}, {"source": 4, "target": 20, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2022-30190"]}, {"source": 4, "target": 21, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2022-30190"]}, {"source": 4, "target": 30, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2017-11882"]}, {"source": 4, "target": 31, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2017-11882"]}, {"source": 4, "target": 33, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2017-11882"]}, {"source": 5, "target": 15, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26084"]}, {"source": 5, "target": 29, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 6, "target": 35, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 7, "target": 22, "weight": 4, "shared_mal": [], "shared_cve": []}, {"source": 7, "target": 29, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 8, "target": 13, "weight": 14, "shared_mal": ["Cobalt Strike", "ShadowPad", "PlugX"], "shared_cve": ["CVE-2021-26855"]}, {"source": 8, "target": 14, "weight": 5, "shared_mal": ["Cobalt Strike"], "shared_cve": []}, {"source": 8, "target": 15, "weight": 8, "shared_mal": [], "shared_cve": ["CVE-2021-44228", "CVE-2021-26855"]}, {"source": 8, "target": 16, "weight": 6, "shared_mal": ["PlugX"], "shared_cve": []}, {"source": 8, "target": 19, "weight": 6, "shared_mal": [], "shared_cve": ["CVE-2021-44228"]}, {"source": 8, "target": 20, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 8, "target": 21, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 8, "target": 22, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2021-44228"]}, {"source": 8, "target": 24, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2021-44228"]}, {"source": 8, "target": 25, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 8, "target": 26, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 8, "target": 30, "weight": 4, "shared_mal": ["Cobalt Strike"], "shared_cve": []}, {"source": 8, "target": 33, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 9, "target": 10, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2023-20198"]}, {"source": 9, "target": 11, "weight": 4, "shared_mal": [], "shared_cve": []}, {"source": 13, "target": 14, "weight": 5, "shared_mal": ["Cobalt Strike"], "shared_cve": []}, {"source": 13, "target": 15, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 13, "target": 16, "weight": 5, "shared_mal": ["PlugX"], "shared_cve": []}, {"source": 13, "target": 19, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 13, "target": 20, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 13, "target": 21, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 13, "target": 25, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 13, "target": 26, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 13, "target": 30, "weight": 4, "shared_mal": ["Cobalt Strike"], "shared_cve": []}, {"source": 13, "target": 33, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 14, "target": 20, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 14, "target": 30, "weight": 8, "shared_mal": ["Cobalt Strike"], "shared_cve": ["CVE-2017-11882"]}, {"source": 14, "target": 31, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2017-11882"]}, {"source": 14, "target": 33, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2017-11882"]}, {"source": 15, "target": 16, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 15, "target": 19, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-44228"]}, {"source": 15, "target": 20, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 15, "target": 21, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 15, "target": 22, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2021-44228"]}, {"source": 15, "target": 24, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-44228"]}, {"source": 15, "target": 25, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 15, "target": 26, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 15, "target": 33, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 16, "target": 28, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2018-13379"]}, {"source": 17, "target": 25, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2020-0688"]}, {"source": 17, "target": 26, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2020-0688"]}, {"source": 19, "target": 20, "weight": 6, "shared_mal": ["ELECTRICFISH"], "shared_cve": []}, {"source": 19, "target": 22, "weight": 8, "shared_mal": ["NukeSped"], "shared_cve": ["CVE-2021-44228"]}, {"source": 19, "target": 24, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2021-44228"]}, {"source": 20, "target": 21, "weight": 6, "shared_mal": [], "shared_cve": ["CVE-2021-26855", "CVE-2022-30190"]}, {"source": 20, "target": 22, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 20, "target": 25, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 20, "target": 26, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 20, "target": 27, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 20, "target": 28, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 20, "target": 33, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 21, "target": 24, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 21, "target": 25, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 21, "target": 26, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 21, "target": 33, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 22, "target": 24, "weight": 7, "shared_mal": [], "shared_cve": ["CVE-2021-44228", "CVE-2022-47966"]}, {"source": 22, "target": 25, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 22, "target": 27, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2022-47966"]}, {"source": 22, "target": 28, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 22, "target": 29, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 24, "target": 27, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2022-47966", "CVE-2023-3519"]}, {"source": 25, "target": 26, "weight": 7, "shared_mal": [], "shared_cve": ["CVE-2021-26855", "CVE-2020-0688"]}, {"source": 25, "target": 28, "weight": 3, "shared_mal": [], "shared_cve": []}, {"source": 25, "target": 33, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 26, "target": 33, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2021-26855"]}, {"source": 28, "target": 29, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2018-13379"]}, {"source": 29, "target": 37, "weight": 3, "shared_mal": [], "shared_cve": ["CVE-2018-13379"]}, {"source": 30, "target": 31, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2017-11882"]}, {"source": 30, "target": 33, "weight": 5, "shared_mal": [], "shared_cve": ["CVE-2017-11882"]}, {"source": 31, "target": 32, "weight": 6, "shared_mal": ["CrimsonRAT"], "shared_cve": []}, {"source": 31, "target": 33, "weight": 4, "shared_mal": [], "shared_cve": ["CVE-2017-11882"]}];
+
+
+const TACTIC = {
+  'initial-access':       {label:'Initial Access',    color:'#3b82f6'},
+  'execution':            {label:'Execution',         color:'#f97316'},
+  'persistence':          {label:'Persistence',       color:'#eab308'},
+  'privilege-escalation': {label:'Priv Escalation',   color:'#ef4444'},
+  'defense-evasion':      {label:'Defense Evasion',   color:'#a855f7'},
+  'credential-access':    {label:'Credential Access', color:'#ec4899'},
+  'discovery':            {label:'Discovery',         color:'#06b6d4'},
+  'lateral-movement':     {label:'Lateral Movement',  color:'#10b981'},
+  'collection':           {label:'Collection',        color:'#14b8a6'},
+  'exfiltration':         {label:'Exfiltration',      color:'#f43f5e'},
+  'command-and-control':  {label:'C2',                color:'#6366f1'},
+  'impact':               {label:'Impact',            color:'#dc2626'},
+};
+const MOTIVATION = {
+  espionage:   {css:'#63b3ed', label:'Espionage'},
+  financial:   {css:'#f6ad55', label:'Financial'},
+  destructive: {css:'#fc8181', label:'Destructive'},
+  mixed:       {css:'#b794f4', label:'Mixed'},
+};
+const ORIGIN_CSS = {
+  Russia:'#ff4d4d', China:'#ff8c42', 'North Korea':'#e05252',
+  Iran:'#ffc542', Vietnam:'#4ade80', India:'#fb923c',
+  Pakistan:'#38bdf8', Turkey:'#f472b6', Belarus:'#c084fc',
+  Israel:'#818cf8', Lebanon:'#86efac', Palestine:'#fde047',
+};
+
+
+const $ = id => document.getElementById(id);
+
+// ── INDEX ──────────────────────────────────────────────────────────
+const byCountry = {};
+for (const g of GROUPS) {
+  if (!byCountry[g.country]) byCountry[g.country] = [];
+  byCountry[g.country].push(g);
+}
+
+// stats
+let totMem=0, totInd=0; const allCVEs = new Set();
+for (const g of GROUPS) {
+  for (const m of g.members||[]) { totMem++; if ((m[2]||'').includes('indicted')) totInd++; }
+  for (const c of g.cves||[]) allCVEs.add(c[0]);
+}
+$('stat-groups').textContent  = GROUPS.length;
+$('stat-indicted').textContent = totInd;
+$('stat-cves').textContent    = allCVEs.size;
+$('stat-edges').textContent   = EDGES.length;
+
+// ── COUNTRY FILTER LIST ────────────────────────────────────────────
+const cListEl = $('country-filter');
+const originOrder = ['Russia','China','North Korea','Iran','Vietnam','India','Pakistan','Turkey','Belarus','Israel','Lebanon','Palestine'];
+const sortedCountries = [...originOrder.filter(c=>byCountry[c]), ...Object.keys(byCountry).filter(c=>!originOrder.includes(c))];
+let activeCountry = null, activeMotivation = null;
+
+for (const country of sortedCountries) {
+  const col = ORIGIN_CSS[country] || '#63b3ed';
+  const el = document.createElement('div');
+  el.className = 'c-row';
+  el.dataset.country = country;
+  el.innerHTML = `<span class="c-dot" style="background:${col}"></span><span>${country}</span><span class="c-cnt">${byCountry[country].length}</span>`;
+  el.addEventListener('click', () => {
+    if (activeCountry === country) { activeCountry = null; el.classList.remove('on'); }
+    else {
+      document.querySelectorAll('.c-row').forEach(r=>r.classList.remove('on'));
+      activeCountry = country; el.classList.add('on');
+    }
+    applyFilters();
+  });
+  cListEl.appendChild(el);
+}
+
+// motivation chips
+document.querySelectorAll('.chip[data-mot]').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const m = chip.dataset.mot;
+    if (activeMotivation === m) { activeMotivation = null; chip.classList.remove('on'); }
+    else { document.querySelectorAll('.chip[data-mot]').forEach(c=>c.classList.remove('on')); activeMotivation = m; chip.classList.add('on'); }
+    applyFilters();
+  });
+});
+
+let visibleGroups = [...GROUPS];
+function applyFilters() {
+  visibleGroups = GROUPS.filter(g => {
+    if (activeCountry && g.country !== activeCountry) return false;
+    if (activeMotivation && g.motivation !== activeMotivation) return false;
+    return true;
+  });
+  refreshCurrentView();
+}
+
+// ── TABS ───────────────────────────────────────────────────────────
+let currentView = 'cluster';
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    const view = tab.dataset.view;
+    $(`${view}-view`).classList.add('active');
+    currentView = view;
+    refreshCurrentView();
+  });
+});
+
+function refreshCurrentView() {
+  if (currentView === 'cluster') renderCluster();
+  else if (currentView === 'diamond') renderDiamond();
+  else if (currentView === 'matrix') renderMatrix();
+  else if (currentView === 'sector') renderSector();
+}
+
+// ── GLOBAL SEARCH ──────────────────────────────────────────────────
+$('global-search').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  if (!q) { visibleGroups = GROUPS; refreshCurrentView(); return; }
+  visibleGroups = GROUPS.filter(g =>
+    [g.name, g.apt, g.aka, g.country, g.agency, ...(g.sectors||[]),
+     ...(g.malware||[]).map(m=>m[0]), ...(g.cves||[]).map(c=>c[0])]
+    .filter(Boolean).some(f => f.toLowerCase().includes(q))
+  );
+  refreshCurrentView();
+});
+
+// ── DETAIL PANEL ───────────────────────────────────────────────────
+const detailPanel = $('detail-panel');
+$('detail-close').addEventListener('click', () => detailPanel.classList.remove('open'));
+document.addEventListener('keydown', e => { if (e.key==='Escape') detailPanel.classList.remove('open'); });
+
+function openDetail(g) {
+  const col = ORIGIN_CSS[g.country] || '#63b3ed';
+  const mot = MOTIVATION[g.motivation] || MOTIVATION.espionage;
+  const isActive = g.last_seen >= 2024;
+  $('d-name').textContent = g.name;
+  $('d-apt2').textContent = g.apt ? `${g.apt} · ${g.country} · ${g.agency}` : `${g.country} · ${g.agency}`;
+
+  let h = '';
+  h += `<div class="ds"><div class="d-badges">
+    <span class="dbadge" style="color:${col};border-color:${col}40;background:${col}12"><span style="width:5px;height:5px;border-radius:50%;background:${col}"></span>${g.country}</span>
+    <span class="dbadge" style="color:${mot.css};border-color:${mot.css}40;background:${mot.css}12">${mot.label}</span>
+    ${isActive?`<span class="dbadge" style="color:#68d391;border-color:rgba(104,211,145,.4);background:rgba(104,211,145,.08)">ACTIVE ${g.last_seen}</span>`:''}
+  </div>
+  <div class="meta-g">
+    <div class="meta-c"><div class="mk">Agency</div><div class="mv" style="font-size:10px;color:var(--blue)">${g.agency}</div></div>
+    <div class="meta-c"><div class="mk">Active Since</div><div class="mv">${g.active_since}</div></div>
+    <div class="meta-c"><div class="mk">Last Seen</div><div class="mv" style="color:${isActive?'#68d391':'var(--muted)'}">${g.last_seen}</div></div>
+    <div class="meta-c"><div class="mk">Confidence</div><div class="mv">${g.confidence}</div></div>
+  </div>
+  <p class="d-desc">${g.description}</p></div>`;
+
+  if ((g.sectors||[]).length) h+=`<div class="ds"><div class="ds-title">Targeted Sectors</div><div class="sectors-wrap">${g.sectors.map(s=>`<span class="sec-chip">${s}</span>`).join('')}</div></div>`;
+
+  if ((g.ttps||[]).length) {
+    h+=`<div class="ds"><div class="ds-title">MITRE ATT&CK TTPs (${g.ttps.length})</div><div class="ttp-list">`;
+    g.ttps.forEach(([id,name,tactic])=>{
+      const t=TACTIC[tactic]||{label:tactic,color:'#888'};
+      h+=`<div class="ttp" style="border-color:${t.color}"><div class="ttp-id" style="color:${t.color}"><a href="https://attack.mitre.org/techniques/${id.replace('.','/').replace('.','/') }/" target="_blank">${id}</a></div><div class="ttp-nm">${name}</div><div class="ttp-tac" style="background:${t.color}22;color:${t.color}">${t.label}</div></div>`;
+    });
+    h+=`</div></div>`;
+  }
+  if ((g.malware||[]).length) {
+    h+=`<div class="ds"><div class="ds-title">Malware & Tools</div><div class="mal-list">`;
+    g.malware.forEach(([n,tp,pl])=>{ h+=`<div class="mal"><span class="mal-name">${n}</span><span class="mal-type">${tp}</span><span class="mal-plat">${pl}</span></div>`; });
+    h+=`</div></div>`;
+  }
+  if ((g.cves||[]).length) {
+    h+=`<div class="ds"><div class="ds-title">Exploited CVEs</div><table class="cve-tbl"><thead><tr><th>CVE</th><th>CVSS</th><th>Product</th><th>Year</th></tr></thead><tbody>`;
+    g.cves.forEach(([id,cvss,prod,yr])=>{const cls=cvss>=9?'cc':cvss>=7?'ch':'cm';h+=`<tr><td class="cve-id"><a href="https://nvd.nist.gov/vuln/detail/${id}" target="_blank">${id}</a></td><td><span class="cpill ${cls}">${cvss}</span></td><td>${prod}</td><td>${yr}</td></tr>`;});
+    h+=`</tbody></table></div>`;
+  }
+  if ((g.detections||[]).length) {
+    h+=`<div class="ds"><div class="ds-title">Detection Resources</div><div class="det-list">`;
+    g.detections.forEach(([src,title,url])=>{ h+=`<div class="det"><span class="det-src">${src}</span><div class="det-link"><a href="${url}" target="_blank">${title}</a></div></div>`; });
+    h+=`</div></div>`;
+  }
+  $('d-body').innerHTML = h;
+  detailPanel.classList.add('open');
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// VIEW 1: CLUSTER GRAPH (D3 force-directed)
+// ─────────────────────────────────────────────────────────────────────
+function renderCluster() {
+  const svg = d3.select('#cluster-svg');
+  svg.selectAll('*').remove();
+
+  const W = $('cluster-view').clientWidth, H = $('cluster-view').clientHeight;
+  svg.attr('viewBox', `0 0 ${W} ${H}`);
+
+  const activeIds = new Set(visibleGroups.map(g => GROUPS.indexOf(g)));
+  const filteredEdges = EDGES.filter(e => activeIds.has(e.source) && activeIds.has(e.target));
+
+  // Build node list (index-aligned to GROUPS)
+  const nodes = visibleGroups.map(g => ({
+    id: GROUPS.indexOf(g), g,
+    r: 6 + Math.min((g.ttps||[]).length * 0.8, 12),
+    col: ORIGIN_CSS[g.country] || '#63b3ed'
+  }));
+  const nodeIndex = {};
+  nodes.forEach(n => nodeIndex[n.id] = n);
+
+  const links = filteredEdges
+    .filter(e => nodeIndex[e.source] && nodeIndex[e.target])
+    .map(e => ({source: nodeIndex[e.source], target: nodeIndex[e.target], weight: e.weight, shared_mal: e.shared_mal, shared_cve: e.shared_cve}));
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d=>d.id).distance(d => Math.max(60, 130 - d.weight * 4)).strength(0.4))
+    .force('charge', d3.forceManyBody().strength(-180))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('collision', d3.forceCollide(d => d.r + 14));
+
+  const g = svg.append('g');
+
+  // zoom
+  svg.call(d3.zoom().scaleExtent([0.3,3]).on('zoom', e => g.attr('transform', e.transform)));
+
+  // links
+  const link = g.append('g').selectAll('line').data(links).join('line')
+    .attr('class','link')
+    .attr('stroke', d => {
+      if (d.shared_mal.length > 0) return '#b794f4';
+      if (d.shared_cve.length > 0) return '#fc8181';
+      return '#63b3ed';
+    })
+    .attr('stroke-width', d => Math.min(1 + d.weight * 0.2, 3))
+    .attr('stroke-opacity', 0.3);
+
+  // nodes
+  const node = g.append('g').selectAll('g').data(nodes).join('g')
+    .attr('class','node')
+    .style('cursor','pointer')
+    .call(d3.drag()
+      .on('start', (e,d) => { if(!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
+      .on('end',   (e,d) => { if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }));
+
+  // glow rings
+  node.append('circle')
+    .attr('r', d => d.r + 5)
+    .attr('fill', 'none')
+    .attr('stroke', d => d.col)
+    .attr('stroke-width', 1)
+    .attr('opacity', 0.18);
+
+  node.append('circle')
+    .attr('r', d => d.r)
+    .attr('fill', d => d.col)
+    .attr('fill-opacity', 0.9)
+    .attr('stroke', d => d.col)
+    .attr('stroke-width', 1.5)
+    .attr('stroke-opacity', 0.6);
+
+  // labels
+  node.append('text')
+    .attr('dy', d => d.r + 12)
+    .attr('text-anchor', 'middle')
+    .style('font-size', '8px')
+    .style('fill', '#8ab0d0')
+    .text(d => d.g.name.length > 14 ? d.g.name.slice(0,13)+'…' : d.g.name);
+
+  // tooltip
+  const tip = $('ctip');
+  node
+    .on('mouseover', (e, d) => {
+      d3.select(e.currentTarget).select('circle:nth-child(2)').attr('fill-opacity', 1).attr('r', d.r * 1.3);
+      link.attr('stroke-opacity', l => (l.source===d || l.target===d) ? 0.8 : 0.06);
+      const neighbors = links.filter(l=>l.source===d||l.target===d).map(l=>l.source===d?l.target.g.name:l.source.g.name);
+      const sharedMal = [...new Set(links.filter(l=>l.source===d||l.target===d).flatMap(l=>l.shared_mal))];
+      tip.classList.add('vis');
+      tip.innerHTML = `<div class="ct-name" style="color:${d.col}">${d.g.name}${d.g.apt?' ('+d.g.apt+')':''}</div>
+        <div class="ct-info">${d.g.country} · ${d.g.motivation} · ${(d.g.ttps||[]).length} TTPs</div>
+        ${neighbors.length ? `<div class="ct-shared">Connected: ${neighbors.slice(0,3).join(', ')}${neighbors.length>3?' +'+( neighbors.length-3):''}  </div>` : ''}
+        ${sharedMal.length ? `<div class="ct-shared">Shared malware: ${sharedMal.slice(0,3).join(', ')}</div>` : ''}
+        <div class="ct-info" style="margin-top:4px;color:var(--faint)">Click to open dossier · Drag to reposition</div>`;
+    })
+    .on('mousemove', e => { tip.style.left=(e.pageX+14)+'px'; tip.style.top=(e.pageY-10)+'px'; })
+    .on('mouseout', (e, d) => {
+      d3.select(e.currentTarget).select('circle:nth-child(2)').attr('fill-opacity', 0.9).attr('r', d.r);
+      link.attr('stroke-opacity', 0.3);
+      tip.classList.remove('vis');
+    })
+    .on('click', (e, d) => { openDetail(d.g); e.stopPropagation(); });
+
+  sim.on('tick', () => {
+    link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    node.attr('transform', d => `translate(${d.x},${d.y})`);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// VIEW 2: DIAMOND MODEL
+// ─────────────────────────────────────────────────────────────────────
+function renderDiamond() {
+  const container = $('diamond-container');
+  container.innerHTML = '';
+
+  for (const g of visibleGroups) {
+    const col = ORIGIN_CSS[g.country] || '#63b3ed';
+    const mot = MOTIVATION[g.motivation] || MOTIVATION.espionage;
+
+    // Diamond Model quadrant data
+    const adversary = `${g.country}\n${g.agency.split('—').pop().trim().split('(')[0].trim().slice(0,28)}`;
+    const infrastructure = (g.malware||[]).slice(0,2).map(m=>m[0]).join(', ') || 'Unknown';
+    const capability = (g.ttps||[]).filter(t=>['execution','defense-evasion'].includes(t[2])).slice(0,2).map(t=>t[1].split(' ')[0]).join(', ') || `${(g.ttps||[]).length} TTPs`;
+    const victim = (g.sectors||[]).slice(0,2).join(', ') || 'Various';
+
+    // SVG Diamond — properly rotated square
+    const S = 200; // SVG size
+    const cx = S/2, cy = S/2;
+    // Diamond corners: top, right, bottom, left
+    const top = [cx, 8], right = [S-8, cy], bottom = [cx, S-8], left = [8, cy];
+    const pts = [top, right, bottom, left].map(p=>p.join(',')).join(' ');
+
+    // quadrant clip paths (approximate quadrant areas as triangles from center)
+    const c = [cx, cy];
+    const qTop    = [c, top, right].map(p=>p.join(',')).join(' ');  // adversary
+    const qRight  = [c, right, bottom].map(p=>p.join(',')).join(' '); // capability
+    const qBottom = [c, bottom, left].map(p=>p.join(',')).join(' ');  // victim
+    const qLeft   = [c, left, top].map(p=>p.join(',')).join(' ');   // infrastructure
+
+    const svgId = `d-${GROUPS.indexOf(g)}`;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'diamond-wrap';
+    wrap.innerHTML = `
+      <div class="diamond-card">
+        <svg id="${svgId}" viewBox="0 0 ${S} ${S}" xmlns="http://www.w3.org/2000/svg">
+          <!-- quadrant fills -->
+          <polygon points="${qTop}"    fill="${col}"      opacity="0.13"/>
+          <polygon points="${qRight}"  fill="${mot.css}"  opacity="0.13"/>
+          <polygon points="${qBottom}" fill="#68d391"     opacity="0.10"/>
+          <polygon points="${qLeft}"   fill="#f6ad55"     opacity="0.10"/>
+          <!-- border -->
+          <polygon points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" opacity="0.7"/>
+          <!-- diagonal dividers -->
+          <line x1="${cx}" y1="8"  x2="${cx}" y2="${S-8}"  stroke="${col}" stroke-width="0.5" stroke-dasharray="3,3" opacity="0.3"/>
+          <line x1="8" y1="${cy}" x2="${S-8}" y2="${cy}"  stroke="${col}" stroke-width="0.5" stroke-dasharray="3,3" opacity="0.3"/>
+          <!-- quadrant labels (small) -->
+          <text x="${cx}" y="30" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="7" fill="${col}" opacity="0.7" letter-spacing="1">ADVERSARY</text>
+          <text x="${S-18}" y="${cy-4}" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="7" fill="${mot.css}" opacity="0.7" letter-spacing="1" transform="rotate(90,${S-18},${cy-4})">CAPABILITY</text>
+          <text x="${cx}" y="${S-16}" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="7" fill="#68d391" opacity="0.7" letter-spacing="1">VICTIM</text>
+          <text x="18" y="${cy-4}" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="7" fill="#f6ad55" opacity="0.7" letter-spacing="1" transform="rotate(-90,18,${cy-4})">INFRAST.</text>
+          <!-- center dot -->
+          <circle cx="${cx}" cy="${cy}" r="4" fill="${col}" opacity="0.9"/>
+          <!-- quadrant content -->
+          <text x="${cx}" y="${cy-26}" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="8.5" font-weight="700" fill="#e2eaf6">${g.country}</text>
+          <text x="${cx+34}" y="${cy+5}" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="7.5" fill="#c0d0e8">${capability.slice(0,12)}</text>
+          <text x="${cx}" y="${cy+30}" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="7.5" fill="#c0d0e8">${victim.slice(0,16)}</text>
+          <text x="${cx-34}" y="${cy+5}" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="7.5" fill="#c0d0e8">${infrastructure.slice(0,12)}</text>
+        </svg>
+      </div>
+      <div class="d-label">
+        <div class="d-name">${g.name}</div>
+        <div class="d-apt">${g.apt||g.country}</div>
+        <div class="d-mot" style="color:${mot.css}">${mot.label}</div>
+      </div>`;
+    wrap.addEventListener('click', () => openDetail(g));
+    container.appendChild(wrap);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// VIEW 3: TTP COVERAGE MATRIX
+// ─────────────────────────────────────────────────────────────────────
+function renderMatrix() {
+  const container = $('matrix-container');
+
+  // Collect all TTP IDs used by visible groups
+  const ttpMap = {}; // id -> {name, tactic, groups[]}
+  for (const g of visibleGroups) {
+    for (const [id, name, tactic] of (g.ttps||[])) {
+      if (!ttpMap[id]) ttpMap[id] = {id, name, tactic, groups:[]};
+      ttpMap[id].groups.push(g.name);
+    }
+  }
+
+  // Sort by coverage desc, take top 30
+  const sortedTTPs = Object.values(ttpMap).sort((a,b)=>b.groups.length-a.groups.length).slice(0,30);
+  const tactics = [...new Set(sortedTTPs.map(t=>t.tactic))];
+  const tacColors = {};
+  for (const t of Object.keys(TACTIC)) tacColors[t] = TACTIC[t].color;
+
+  let h = `<div class="matrix-header">
+    <div class="mh-title">TTP Coverage Heatmap</div>
+    <div class="mh-sub">Top 30 techniques by group coverage · Cell = group uses this technique · Click for group detail</div>
+  </div>
+  <div style="overflow:auto"><table class="matrix-table"><thead><tr>
+    <th class="row-hdr">Technique</th>`;
+
+  const displayGroups = visibleGroups.slice(0,40);
+  for (const g of displayGroups) {
+    const col = ORIGIN_CSS[g.country] || '#63b3ed';
+    h += `<th title="${g.name}"><div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:8px;padding:4px 2px;color:${col};font-family:'IBM Plex Mono',monospace;letter-spacing:.04em;max-height:80px;overflow:hidden">${g.name.slice(0,12)}</div></th>`;
+  }
+  h += `<th style="min-width:60px;color:var(--muted);font-size:9px">Coverage</th></tr></thead><tbody>`;
+
+  for (const ttp of sortedTTPs) {
+    const tcol = tacColors[ttp.tactic] || '#888';
+    h += `<tr><td class="row-lbl"><span style="display:inline-block;width:3px;height:12px;background:${tcol};border-radius:1px;margin-right:6px;vertical-align:middle"></span><a href="https://attack.mitre.org/techniques/${ttp.id.replace('.','/').replace('.','/') }/" target="_blank" style="color:${tcol};font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700">${ttp.id}</a> <span style="color:var(--muted);font-size:10px">${ttp.name.slice(0,30)}</span></td>`;
+    for (const g of displayGroups) {
+      const has = (g.ttps||[]).some(t=>t[0]===ttp.id);
+      const intensity = Math.round(80 + ttp.groups.length * 8);
+      h += has
+        ? `<td title="${g.name}: ${ttp.id}"><div class="m-cell" style="background:${tcol};opacity:0.7" onclick="openDetailByName('${g.name}')"></div></td>`
+        : `<td><div class="m-cell" style="background:var(--bg4)"></div></td>`;
+    }
+    const pct = Math.round(ttp.groups.length / visibleGroups.length * 100);
+    h += `<td style="font-family:'IBM Plex Mono',monospace;font-size:10px;text-align:right;padding-right:6px">
+      <div style="display:flex;align-items:center;gap:5px;justify-content:flex-end">
+        <div style="width:${Math.max(4,pct*0.5)}px;height:6px;background:${tcol};border-radius:2px;opacity:.6"></div>
+        <span style="color:${tcol}">${ttp.groups.length}</span>
+      </div></td></tr>`;
+  }
+  h += `</tbody></table></div>`;
+  container.innerHTML = h;
+}
+
+window.openDetailByName = (name) => {
+  const g = GROUPS.find(g=>g.name===name);
+  if (g) openDetail(g);
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// VIEW 4: SECTOR PIVOT — "WHO HUNTS ME?"
+// ─────────────────────────────────────────────────────────────────────
+let activeSector = null;
+function renderSector() {
+  // Build sector list
+  const sectorMap = {};
+  for (const g of GROUPS) for (const s of (g.sectors||[])) {
+    if (!sectorMap[s]) sectorMap[s] = 0;
+    sectorMap[s]++;
+  }
+  const sectors = Object.entries(sectorMap).sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
+
+  // Render picker
+  const picker = $('sector-picker');
+  picker.innerHTML = '';
+  for (const s of sectors) {
+    const btn = document.createElement('button');
+    btn.className = 'spick' + (activeSector===s?' on':'');
+    btn.textContent = s;
+    btn.addEventListener('click', () => {
+      activeSector = activeSector===s ? null : s;
+      renderSector();
+    });
+    picker.appendChild(btn);
+  }
+
+  // Results
+  const results = $('sector-results');
+  results.innerHTML = '';
+
+  if (!activeSector) {
+    results.innerHTML = '<div class="sector-empty">← Select a sector to see who's hunting you</div>';
+    return;
+  }
+
+  // Score each group targeting this sector
+  const scored = visibleGroups
+    .filter(g => (g.sectors||[]).includes(activeSector))
+    .map(g => {
+      const recency  = g.last_seen >= 2024 ? 3 : g.last_seen >= 2022 ? 2 : 1;
+      const conf     = g.confidence === 'high' ? 3 : g.confidence === 'medium' ? 2 : 1;
+      const ttpCount = (g.ttps||[]).length;
+      const cveCount = (g.cves||[]).length;
+      const score    = recency * 3 + conf * 2 + Math.min(ttpCount, 10) + cveCount;
+      return { g, score };
+    })
+    .sort((a,b) => b.score - a.score);
+
+  if (!scored.length) {
+    results.innerHTML = `<div class="sector-empty">No groups in current filter targeting ${activeSector}</div>`;
+    return;
+  }
+
+  for (let i=0; i<scored.length; i++) {
+    const {g, score} = scored[i];
+    const col = ORIGIN_CSS[g.country] || '#63b3ed';
+    const mot = MOTIVATION[g.motivation] || MOTIVATION.espionage;
+    const isActive = g.last_seen >= 2024;
+    const el = document.createElement('div');
+    el.className = 'trow';
+    el.innerHTML = `
+      <div class="tr-rank" style="color:${i<3?col:'var(--faint)'}">${String(i+1).padStart(2,'0')}</div>
+      <div class="tr-dot" style="background:${col}"></div>
+      <div class="tr-body">
+        <div class="tr-name">${g.name}${g.apt?' <span style="color:var(--blue);font-size:10px">('+g.apt+')</span>':''}</div>
+        <div class="tr-agency">${g.agency}</div>
+        <div class="tr-tags">
+          <span class="tr-tag" style="color:${mot.css};border-color:${mot.css}44">${mot.label}</span>
+          ${isActive?'<span class="tr-tag active">ACTIVE 2024-25</span>':''}
+          <span class="tr-tag">${g.confidence} confidence</span>
+          <span class="tr-tag">${(g.ttps||[]).length} TTPs</span>
+          ${(g.cves||[]).length ? `<span class="tr-tag">${g.cves.length} CVEs</span>` : ''}
+        </div>
+      </div>
+      <div class="tr-score">
+        <div class="ts-val">${score}</div>
+        <div class="ts-lbl">threat score</div>
+      </div>`;
+    el.addEventListener('click', () => openDetail(g));
+    results.appendChild(el);
+  }
+}
+
+// ── INIT ───────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  renderCluster();
+});
+window.addEventListener('resize', () => {
+  if (currentView === 'cluster') renderCluster();
+});
+
+</script>
+</body>
+</html>
